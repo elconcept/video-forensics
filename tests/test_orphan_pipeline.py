@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from pathlib import Path
 
 from video_forensics.native.orphan_pipeline import find_ffmpeg
