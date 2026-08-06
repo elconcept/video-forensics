@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from scripts.bootstrap_h265nal import require_build_tools
+MODULE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "bootstrap_h265nal.py"
+SPEC = importlib.util.spec_from_file_location("bootstrap_h265nal", MODULE_PATH)
+if SPEC is None or SPEC.loader is None:
+    raise ImportError(f"Cannot load {MODULE_PATH}")
+bootstrap_h265nal = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(bootstrap_h265nal)
+require_build_tools = bootstrap_h265nal.require_build_tools
 
 
 def test_requires_git_cmake_and_cpp_compiler(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -13,7 +19,7 @@ def test_requires_git_cmake_and_cpp_compiler(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_pin_is_not_a_branch_name() -> None:
-    from scripts.bootstrap_h265nal import PINNED_REF
+    pinned_ref = bootstrap_h265nal.PINNED_REF
 
-    assert PINNED_REF not in {"master", "main", "HEAD"}
-    assert len(PINNED_REF) >= 7
+    assert pinned_ref not in {"master", "main", "HEAD"}
+    assert len(pinned_ref) >= 7
