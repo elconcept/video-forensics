@@ -9,6 +9,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from video_forensics.native.orphan_plan_review import verify_approved_plan
+
 
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -128,6 +130,7 @@ def build(
 
     rows = parse_nal_units(annex_b)
     plan = load_plan(plan_path)
+    verify_approved_plan(annex_b, plan)
     validated = validate_plan(rows, plan)
     parameter_rows = validated["parameter_rows"]
     reference_rows = validated["reference_rows"]
