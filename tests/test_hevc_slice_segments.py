@@ -55,8 +55,8 @@ def test_dependent_segment_inherits_independent_fields() -> None:
 def test_independent_nonfirst_segment_parses_own_core_header() -> None:
     sps = SPS(0, 128, 64, 8, 0, 6)
     pps = PPS(0, 0, 1, 0, 0)
-    # first=0, pps_id ue(0)=1, dependent=0, address=01, slice_type ue(1)=010, poc_lsb=7
-    payload = b"\x02\x01" + bits_to_bytes("010101000000111")
+    # first=0, pps_id ue(0)=1, dependent=0, address=01, slice_type ue(1)=010, poc_lsb=7, short_term_ref_pic_set_sps_flag=1
+    payload = b"\x02\x01" + bits_to_bytes("0101010000001111")
     parsed = parse_slice_segment_header(payload, 1, 12, {0: pps}, {0: sps}, None)
     assert parsed.dependent_slice_segment_flag == 0
     assert parsed.slice_segment_address == 1
