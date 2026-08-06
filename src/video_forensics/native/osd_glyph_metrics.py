@@ -1,0 +1,243 @@
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import statistics
+import sys
+from collections import deque
+from pathlib import Path
+
+import numpy as np
+from PIL import Image, ImageOps
+
+
+def load_binary(path: Path, threshold: int) -> np.ndarray:
+    if not 0 <= threshold <= 255:
+        raise ValueError("threshold must be between 0 and 255")
+    with Image.open(path) as image:
+        gray = np.asarray(ImageOps.grayscale(image), dtype=np.uint8)
+    return gray >= threshold
+
+
+def components(mask: np.ndarray, minimum_pixels: int) -> list[dict[str, int]]:
+    if mask.ndim != 2:
+        raise ValueError("glyph mask must be two-dimensional")
+    height, width = mask.shape
+    visited = np.zeros_like(mask, dtype=bool)
+    results: list[dict[str, int]] = []
+    for y in range(height):
+        for x in range(width):
+            if not mask[y, x] or visited[y, x]:
+                continue
+            queue: deque[tuple[int, int]] = deque([(x, y)])
+            visited[y, x] = True
+            points: list[tuple[int, int]] = []
+            while queue:
+                current_x, current_y = queue.popleft()
+                points.append((current_x, current_y))
+                for next_x, next_y in (
+                    (current_x - 1, current_y),
+                    (current_x + 1, current_y),
+                    (current_x, current_y - 1),
+                    (current_x, current_y + 1),
+                ):
+                    if (
+                        0 <= next_x < width
+                        and 0 <= next_y < height
+                        and mask[next_y, next_x]
+                        and not visited[next_y, next_x]
+                    ):
+                        visited[next_y, next_x] = True
+                        queue.append((next_x, next_y))
+            if len(points) < minimum_pixels:
+                continue
+            xs = [point[0] for point in points]
+            ys = [point[1] for point in points]
+            results.append(
+                {
+                    "pixel_count": len(points),
+                    "x": min(xs),
+                    "y": min(ys),
+                    "width": max(xs) - min(xs) + 1,
+                    "height": max(ys) - min(ys) + 1,
+                    "baseline": max(ys),
+                }
+            )
+    return sorted(results, key=lambda item: item["x"])
+
+
+def summarize(components_by_frame: list[list[dict[str, int]]]) -> dict[str, object]:
+    flattened = [item for frame in components_by_frame for item in frame]
+    if not flattened:
+        return {"component_count": 0}
+    baselines = [item["baseline"] for item in flattened]
+    heights = [item["height"] for item in flattened]
+    widths = [item["width"] for item in flattened]
+    return {
+        "component_count": len(flattened),
+        "baseline_median": statistics.median(baselines),
+        "baseline_range": max(baselines) - min(baselines),
+        "height_median": statistics.median(heights),
+        "height_range": max(heights) - min(heights),
+        "width_median": statistics.median(widths),
+        "width_range": max(widths) - min(widths),
+    }
+
+
+def analyze(
+    crops_root: Path,
+    output: Path,
+    *,
+    threshold: int,
+    minimum_pixels: int,
+    baseline_tolerance: int,
+    height_tolerance: int,
+    host_profile_id: str | None,
+) -> dict[str, object]:
+    crops_root = crops_root.expanduser().resolve(strict=True)
+    frame_paths = sorted(
+        path
+        for path in crops_root.iterdir()
+        if path.suffix.lower() in {".png", ".jpg", ".jpeg", ".tif", ".tiff"}
+    )
+    if not frame_paths:
+        raise ValueError(f"no OSD crop images found: {crops_root}")
+    output = output.expanduser().resolve()
+    output.mkdir(parents=True, exist_ok=False)
+
+    rows: list[dict[str, object]] = []
+    component_sets: list[list[dict[str, int]]] = []
+    for frame_number, path in enumerate(frame_paths, start=1):
+        found = components(load_binary(path, threshold), minimum_pixels)
+        component_sets.append(found)
+        baseline_values = [item["baseline"] for item in found]
+        height_values = [item["height"] for item in found]
+        rows.append(
+            {
+                "frame_number": frame_number,
+                "filename": path.name,
+                "component_count": len(found),
+                "baseline_min": min(baseline_values) if baseline_values else None,
+                "baseline_max": max(baseline_values) if baseline_values else None,
+                "baseline_range": (
+                    max(baseline_values) - min(baseline_values)
+                    if baseline_values
+                    else None
+                ),
+                "height_min": min(height_values) if height_values else None,
+                "height_max": max(height_values) if height_values else None,
+                "height_range": (
+                    max(height_values) - min(height_values) if height_values else None
+                ),
+                "components": found,
+            }
+        )
+
+    findings: list[dict[str, object]] = []
+    for row in rows:
+        baseline_range = row["baseline_range"]
+        height_range = row["height_range"]
+        if baseline_range is not None and int(baseline_range) > baseline_tolerance:
+            findings.append(
+                {
+                    "id": "OSD_GLYPH_BASELINE_INCONSISTENCY",
+                    "severity": "low",
+                    "description": "Connected glyph components have a baseline range above the configured tolerance.",
+                    "evidence_refs": [f"osd_glyph_metrics/frames.json#frame-{row['frame_number']}"],
+                    "requires_reference": True,
+                    "host_profile": host_profile_id,
+                    "observations": row,
+                    "mundane_explanation": "Punctuation, suffixes, anti-aliasing, threshold selection, perspective, or OCR crop geometry can alter connected-component baselines.",
+                }
+            )
+        if height_range is not None and int(height_range) > height_tolerance:
+            findings.append(
+                {
+                    "id": "OSD_GLYPH_HEIGHT_INCONSISTENCY",
+                    "severity": "low",
+                    "description": "Connected glyph components have a height range above the configured tolerance.",
+                    "evidence_refs": [f"osd_glyph_metrics/frames.json#frame-{row['frame_number']}"],
+                    "requires_reference": True,
+                    "host_profile": host_profile_id,
+                    "observations": row,
+                    "mundane_explanation": "Different characters naturally have different heights; anti-aliasing, punctuation, crop geometry, and threshold selection also affect component height.",
+                }
+            )
+
+    result: dict[str, object] = {
+        "schema_version": 1,
+        "module": "osd_glyph_metrics",
+        "parameters": {
+            "threshold": threshold,
+            "minimum_component_pixels": minimum_pixels,
+            "baseline_tolerance": baseline_tolerance,
+            "height_tolerance": height_tolerance,
+            "connectivity": 4,
+        },
+        "frame_count": len(rows),
+        "summary": summarize(component_sets),
+        "finding_count": len(findings),
+        "frames": rows,
+        "findings": findings,
+        "interpretation_boundary": (
+            "Connected-component geometry is a screening measurement, not a typeface identification. "
+            "Findings require visual confirmation and suitable device-reference material."
+        ),
+    }
+    with (output / "frames.csv").open("w", encoding="utf-8", newline="") as handle:
+        columns = [
+            "frame_number",
+            "filename",
+            "component_count",
+            "baseline_min",
+            "baseline_max",
+            "baseline_range",
+            "height_min",
+            "height_max",
+            "height_range",
+        ]
+        writer = csv.DictWriter(handle, fieldnames=columns)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({key: row[key] for key in columns})
+    (output / "frames.json").write_text(
+        json.dumps(rows, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (output / "osd_glyph_metrics.json").write_text(
+        json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return result
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="video-forensics-osd-glyph-metrics")
+    parser.add_argument("crops_root", type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--threshold", type=int, default=180)
+    parser.add_argument("--minimum-pixels", type=int, default=3)
+    parser.add_argument("--baseline-tolerance", type=int, default=3)
+    parser.add_argument("--height-tolerance", type=int, default=5)
+    parser.add_argument("--host-profile-id")
+    args = parser.parse_args()
+    try:
+        result = analyze(
+            args.crops_root,
+            args.output,
+            threshold=args.threshold,
+            minimum_pixels=args.minimum_pixels,
+            baseline_tolerance=args.baseline_tolerance,
+            height_tolerance=args.height_tolerance,
+            host_profile_id=args.host_profile_id,
+        )
+    except (FileNotFoundError, FileExistsError, TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps({"finding_count": result["finding_count"]}, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
