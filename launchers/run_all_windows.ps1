@@ -21,9 +21,7 @@ if ($files.Count -eq 0) {
 }
 
 $session = [DateTime]::UtcNow.ToString("yyyyMMddTHHmmssZ")
-$sessionDir = Join-Path $ResultsDir $session
-New-Item -ItemType Directory -Force -Path $sessionDir | Out-Null
-$hostProfile = Join-Path $sessionDir "host_profile.json"
+$hostProfile = Join-Path $ResultsDir "host_profile_${session}.json"
 
 & video-forensics-host-profile --output $hostProfile
 if ($LASTEXITCODE -ne 0) { throw "host-profile failed" }
@@ -125,7 +123,8 @@ $profiles | ForEach-Object { Write-Host "  - $_" }
 
 foreach ($file in $files) {
     $safeStem = $file.BaseName -replace '[^A-Za-z0-9._-]', '_'
-    $out = Join-Path $sessionDir $safeStem
+    $fileRoot = Join-Path $ResultsDir $safeStem
+    $out = Join-Path $fileRoot $session
     New-Item -ItemType Directory -Force -Path $out | Out-Null
 
     & video-forensics analyze $file.FullName --output (Join-Path $out "baseline")
@@ -169,4 +168,4 @@ foreach ($file in $files) {
     if ($LASTEXITCODE -ne 0) { throw "summary failed for $($file.Name)" }
 }
 
-Write-Host "Completed session: $sessionDir"
+Write-Host "Completed session timestamp: $session"

@@ -1,0 +1,116 @@
+from __future__ import annotations
+
+import re
+import subprocess
+from typing import Any
+
+DISPLAY_CLASS = re.compile(
+    r"^(?P<slot>[0-9a-fA-F:.]+)\s+"
+    r"(?P<class>VGA compatible controller|3D controller|Display controller)"
+    r"(?:\s+\[[0-9a-fA-F]{4}\])?:\s+(?P<description>.+)$"
+)
+VENDOR_IDS = {
+    "8086": "intel",
+    "10de": "nvidia",
+    "1002": "amd",
+    "1022": "amd",
+}
+
+
+def display_devices(lspci_text: str) -> list[dict[str, str]]:
+    devices: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
+    for line in lspci_text.splitlines():
+        match = DISPLAY_CLASS.match(line)
+        if match:
+            description = match.group("description")
+            identifiers = re.findall(r"\[([0-9a-fA-F]{4}):([0-9a-fA-F]{4})\]", description)
+            vendor_id = identifiers[-1][0].lower() if identifiers else ""
+            current = {
+                "slot": match.group("slot"),
+                "class": match.group("class"),
+                "description": description,
+                "vendor_id": vendor_id,
+                "vendor": VENDOR_IDS.get(vendor_id, "unknown"),
+                "kernel_driver": "",
+            }
+            devices.append(current)
+            continue
+        if current is not None and line.startswith("\tKernel driver in use:"):
+            current["kernel_driver"] = line.split(":", 1)[1].strip()
+        elif line and not line.startswith("\t"):
+            current = None
+    return devices
+
+
+def probe(argv: list[str], timeout: int = 30) -> dict[str, Any]:
+    try:
+        completed = subprocess.run(
+            argv,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        return {"argv": argv, "returncode": None, "usable": False, "error": str(exc)}
+    return {
+        "argv": argv,
+        "returncode": completed.returncode,
+        "usable": completed.returncode == 0,
+        "stdout": completed.stdout,
+        "stderr": completed.stderr,
+    }
+
+
+def inventory(
+    lspci_text: str,
+    ffmpeg_hwaccels: list[str],
+    render_nodes: list[str],
+    *,
+    ffmpeg: str = "ffmpeg",
+) -> dict[str, Any]:
+    devices = display_devices(lspci_text)
+    vendors = {
+        vendor: any(device["vendor"] == vendor for device in devices)
+        for vendor in ("intel", "nvidia", "amd")
+    }
+    cuda_probe = (
+        probe([ffmpeg, "-hide_banner", "-loglevel", "error", "-hwaccel", "cuda", "-f", "lavfi", "-i", "color=size=16x16:rate=1", "-frames:v", "1", "-f", "null", "-"])
+        if vendors["nvidia"] and "cuda" in ffmpeg_hwaccels
+        else {"usable": False, "reason": "no NVIDIA display controller or CUDA hwaccel"}
+    )
+    qsv_probe = (
+        probe([ffmpeg, "-hide_banner", "-loglevel", "error", "-init_hw_device", "qsv=hw", "-filter_hw_device", "hw", "-f", "lavfi", "-i", "color=size=16x16:rate=1", "-frames:v", "1", "-f", "null", "-"])
+        if vendors["intel"] and "qsv" in ffmpeg_hwaccels
+        else {"usable": False, "reason": "no Intel display controller or QSV hwaccel"}
+    )
+    vaapi_probe = (
+        probe([ffmpeg, "-hide_banner", "-loglevel", "error", "-init_hw_device", f"vaapi=va:{render_nodes[0]}", "-f", "lavfi", "-i", "color=size=16x16:rate=1", "-frames:v", "1", "-f", "null", "-"])
+        if render_nodes and "vaapi" in ffmpeg_hwaccels
+        else {"usable": False, "reason": "no render node or VAAPI hwaccel"}
+    )
+    usable = {
+        "cuda_nvdec": bool(cuda_probe.get("usable")),
+        "qsv": bool(qsv_probe.get("usable")),
+        "vaapi": bool(vaapi_probe.get("usable")),
+    }
+    profiles = [
+        "profiles/decoder_matrix/software_single_thread.json",
+        "profiles/decoder_matrix/software_automatic_threads.json",
+    ]
+    if usable["cuda_nvdec"]:
+        profiles.append("profiles/decoder_matrix/linux_nvdec.json")
+    if usable["qsv"]:
+        profiles.append("profiles/decoder_matrix/linux_qsv.json")
+    if usable["vaapi"]:
+        profiles.append("profiles/decoder_matrix/linux_vaapi.json")
+    return {
+        "display_devices": devices,
+        "vendors": vendors,
+        "render_nodes": render_nodes,
+        "ffmpeg_hwaccels": ffmpeg_hwaccels,
+        "probes": {"cuda_nvdec": cuda_probe, "qsv": qsv_probe, "vaapi": vaapi_probe},
+        "usable": usable,
+        "selected_profiles": profiles,
+    }

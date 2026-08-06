@@ -35,7 +35,7 @@ for INPUT in "${FILES[@]}"; do
   NAME="$(basename "$INPUT")"
   STEM="${NAME%.*}"
   SAFE_STEM="$(printf '%s' "$STEM" | tr -cs 'A-Za-z0-9._-' '_')"
-  OUT="$SESSION_DIR/$SAFE_STEM"
+  OUT="$RESULTS_DIR/$SAFE_STEM/$SESSION"
   mkdir -p "$OUT"
 
   video-forensics analyze "$INPUT" --output "$OUT/baseline"
@@ -60,4 +60,4 @@ for INPUT in "${FILES[@]}"; do
   video-forensics-result-summary "$OUT"
 done
 
-printf 'Completed session: %s\n' "$SESSION_DIR"
+printf 'Completed session timestamp: %s\n' "$SESSION"
