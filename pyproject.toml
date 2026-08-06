@@ -21,6 +21,7 @@ dev = [
 ]
 
 [project.scripts]
+video-forensics-hevc-reference-enroll = "video_forensics.native.hevc_reference_enroll:main"
 video-forensics-hevc-migration-regression = "video_forensics.native.hevc_migration_regression:main"
 video-forensics-hevc-reference-compare = "video_forensics.native.hevc_reference_compare:main"
 video-forensics-hevc-semantic-compare = "video_forensics.native.hevc_semantic_compare:main"
