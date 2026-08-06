@@ -1,1 +1,158 @@
-"""Planned analytical module: extract_frames."""
+from __future__ import annotations
+
+import csv
+import hashlib
+from pathlib import Path
+from time import monotonic
+
+from video_forensics.manifest import atomic_write_json, utc_now
+from video_forensics.process import run_command
+
+FFMPEG = Path("/usr/bin/ffmpeg")
+FFPROBE = Path("/usr/bin/ffprobe")
+DEFAULT_FORMAT = "png"
+SUPPORTED_FORMATS = {"png", "tiff", "webp"}
+
+
+def _parse_ranges(value: str | None) -> list[tuple[int, int]]:
+    if not value:
+        return []
+    ranges: list[tuple[int, int]] = []
+    for part in value.split(","):
+        token = part.strip()
+        if not token:
+            continue
+        if "-" in token:
+            start_text, end_text = token.split("-", 1)
+            start, end = int(start_text), int(end_text)
+        else:
+            start = end = int(token)
+        if start < 1 or end < start:
+            raise ValueError(f"invalid frame range: {token}")
+        ranges.append((start, end))
+    return ranges
+
+
+def _selection_expression(ranges: list[tuple[int, int]]) -> str | None:
+    if not ranges:
+        return None
+    expressions = [f"between(n,{start - 1},{end - 1})" for start, end in ranges]
+    return "+".join(expressions)
+
+
+def _codec_arguments(image_format: str) -> tuple[str, list[str]]:
+    if image_format == "png":
+        return "png", ["-c:v", "png", "-compression_level", "6"]
+    if image_format == "tiff":
+        return "tiff", ["-c:v", "tiff", "-compression_algo", "deflate"]
+    if image_format == "webp":
+        return "webp", ["-c:v", "libwebp", "-lossless", "1", "-q:v", "100"]
+    raise ValueError(f"unsupported frame format: {image_format}")
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(8 * 1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _frame_index(output_dir: Path) -> list[dict[str, object]]:
+    frames_dir = output_dir / "extracted_frames" / "frames"
+    rows: list[dict[str, object]] = []
+    for number, path in enumerate(sorted(frames_dir.glob("frame_*")), start=1):
+        rows.append(
+            {
+                "output_sequence_number": number,
+                "filename": path.name,
+                "size_bytes": path.stat().st_size,
+                "sha256": _sha256(path),
+            }
+        )
+    return rows
+
+
+def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    columns = ["output_sequence_number", "filename", "size_bytes", "sha256"]
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def analyze(
+    video: Path,
+    output_dir: Path,
+    *,
+    image_format: str = DEFAULT_FORMAT,
+    ranges: str | None = None,
+    timeout: int = 3600,
+) -> dict[str, object]:
+    video = video.resolve(strict=True)
+    if not video.is_file():
+        raise ValueError(f"input is not a regular file: {video}")
+    if not FFMPEG.is_file():
+        raise FileNotFoundError(f"required executable not found: {FFMPEG}")
+
+    parsed_ranges = _parse_ranges(ranges)
+    extension, codec = _codec_arguments(image_format)
+    frames_dir = output_dir / "extracted_frames" / "frames"
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    if any(frames_dir.iterdir()):
+        raise FileExistsError(f"frame output directory is not empty: {frames_dir}")
+
+    selection = _selection_expression(parsed_ranges)
+    filters = []
+    if selection:
+        filters.extend(["-vf", f"select='{selection}'", "-vsync", "0"])
+
+    pattern = frames_dir / f"frame_%09d.{extension}"
+    argv = [
+        str(FFMPEG),
+        "-nostdin",
+        "-v",
+        "error",
+        "-i",
+        str(video),
+        "-map",
+        "0:v:0",
+        *filters,
+        *codec,
+        "-f",
+        "image2",
+        str(pattern),
+    ]
+
+    started = monotonic()
+    command = run_command(argv, timeout=timeout)
+    if command.returncode != 0:
+        diagnostic = command.stderr.strip() or command.stdout.strip() or "no diagnostic output"
+        raise RuntimeError(f"FFmpeg frame extraction failed ({command.returncode}): {diagnostic}")
+
+    rows = _frame_index(output_dir)
+    _write_csv(output_dir / "extracted_frames" / "index.csv", rows)
+    result: dict[str, object] = {
+        "schema_version": 1,
+        "stage": "extract_frames",
+        "completed_at_utc": utc_now(),
+        "duration_seconds": round(monotonic() - started, 6),
+        "tool": {"name": "ffmpeg", "executable": str(FFMPEG)},
+        "command": command.to_dict(),
+        "parameters": {
+            "format": image_format,
+            "requested_ranges": parsed_ranges,
+            "selection_expression": selection,
+        },
+        "summary": {
+            "written_frame_count": len(rows),
+            "total_size_bytes": sum(int(row["size_bytes"]) for row in rows),
+        },
+        "outputs": {
+            "frames": "extracted_frames/frames/",
+            "index": "extracted_frames/index.csv",
+        },
+    }
+    atomic_write_json(output_dir / "extracted_frames" / "extract_frames.json", result)
+    return result
