@@ -165,6 +165,7 @@ for INPUT in "${FILES[@]}"; do
   mkdir -p "$OUT"
 
   video-forensics analyze "$INPUT" --output "$OUT/baseline"
+  video-forensics-hevc-migration-stage "$INPUT" --output "$OUT/hevc_parser_migration" --repository .
   video-forensics-run-matrix "$INPUT" --output "$OUT/matrix"
 
   PROFILE_ARGS=()

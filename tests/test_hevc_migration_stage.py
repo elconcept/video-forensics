@@ -1,0 +1,37 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from video_forensics.native.hevc_migration_stage import run_stage
+
+
+def test_non_hevc_is_recorded_as_skip(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    video = tmp_path / "input.mp4"
+    video.write_bytes(b"fixture")
+    monkeypatch.setattr(
+        "video_forensics.native.hevc_migration_stage.resolve_binary",
+        lambda explicit, name: Path("/bin/true"),
+    )
+    monkeypatch.setattr(
+        "video_forensics.native.hevc_migration_stage.codec_name",
+        lambda video, ffprobe, timeout: "h264",
+    )
+    result = run_stage(
+        video,
+        tmp_path / "output",
+        repository=tmp_path,
+        ffmpeg_path=None,
+        ffprobe_path=None,
+        wrapper=None,
+        h265nal=None,
+        legacy_json=None,
+        timeout=30,
+    )
+    assert result["status"] == "skipped_non_hevc"
+    manifest = json.loads((tmp_path / "output/manifest.json").read_text())
+    assert manifest["codec_name"] == "h264"

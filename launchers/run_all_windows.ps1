@@ -132,6 +132,13 @@ foreach ($file in $files) {
     & video-forensics analyze $file.FullName --output (Join-Path $out "baseline")
     if ($LASTEXITCODE -ne 0) { throw "baseline failed for $($file.Name)" }
 
+    & video-forensics-hevc-migration-stage $file.FullName `
+        --output (Join-Path $out "hevc_parser_migration") `
+        --repository . `
+        --ffmpeg $Ffmpeg `
+        --ffprobe $Ffprobe
+    if ($LASTEXITCODE -ne 0) { throw "HEVC parser migration stage failed for $($file.Name)" }
+
     & video-forensics-run-matrix $file.FullName `
         --output (Join-Path $out "matrix") `
         --ffmpeg $Ffmpeg `

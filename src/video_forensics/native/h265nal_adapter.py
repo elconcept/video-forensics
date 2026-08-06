@@ -120,10 +120,10 @@ def parse_brace_dump(text: str) -> list[dict[str, Any]]:
 def normalize_nal(root: dict[str, Any], number: int) -> dict[str, Any]:
     payload = root.get("nal_unit")
     if not isinstance(payload, dict):
-        raise ValueError(f"root {number} is not a nal_unit")
+        raise TypeError(f"root {number} is not a nal_unit")
     header = payload.get("nal_unit_header")
     if not isinstance(header, dict):
-        raise ValueError(f"NAL {number} has no nal_unit_header")
+        raise TypeError(f"NAL {number} has no nal_unit_header")
     return {
         "nal_number": number,
         "offset": payload.get("offset"),
