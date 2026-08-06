@@ -21,6 +21,7 @@ dev = [
 ]
 
 [project.scripts]
+video-forensics-osd-timeline = "video_forensics.native.osd_timeline:main"
 video-forensics = "video_forensics.cli:main"
 video-forensics-host-profile = "video_forensics.native.host_profile:main"
 video-forensics-orphan-recovery = "video_forensics.native.orphan_recovery:main"

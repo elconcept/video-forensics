@@ -1,0 +1,152 @@
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+
+def read_json(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise TypeError(f"expected JSON object: {path}")
+    return payload
+
+
+def read_pts(path: Path) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        for index, row in enumerate(reader, start=1):
+            frame_number = int(row.get("frame_number") or row.get("coded_picture_number") or index)
+            raw_pts = row.get("pts_time") or row.get("best_effort_timestamp_time") or row.get("pts")
+            if raw_pts in (None, "", "N/A"):
+                pts = None
+            else:
+                pts = float(raw_pts)
+            rows.append({"frame_number": frame_number, "pts_seconds": pts})
+    return rows
+
+
+def merge(osd: dict[str, Any], pts_rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    readings = osd.get("readings")
+    if not isinstance(readings, list):
+        raise TypeError("OSD result does not contain a readings list")
+    pts_lookup = {int(row["frame_number"]): row.get("pts_seconds") for row in pts_rows}
+    merged: list[dict[str, object]] = []
+    for reading in readings:
+        frame_number = int(reading["frame_number"])
+        merged.append(
+            {
+                "frame_number": frame_number,
+                "pts_seconds": pts_lookup.get(frame_number),
+                "filename": reading.get("filename"),
+                "ocr_text": reading.get("ocr_text"),
+                "parsed_timestamp": reading.get("parsed_timestamp"),
+            }
+        )
+    return merged
+
+
+def timeline_findings(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    findings: list[dict[str, object]] = []
+    previous_pts: float | None = None
+    previous_frame: int | None = None
+    missing_pts_start: int | None = None
+    for row in rows:
+        frame_number = int(row["frame_number"])
+        pts_value = row.get("pts_seconds")
+        pts = None if pts_value is None else float(pts_value)
+        if pts is None:
+            if missing_pts_start is None:
+                missing_pts_start = frame_number
+            continue
+        if missing_pts_start is not None:
+            findings.append(
+                {
+                    "id": "OSD_TIMELINE_PTS_ABSENT_RANGE",
+                    "severity": "low",
+                    "description": "PTS was unavailable for a contiguous OSD-reading range.",
+                    "start_frame": missing_pts_start,
+                    "end_frame": frame_number - 1,
+                }
+            )
+            missing_pts_start = None
+        if previous_pts is not None and pts < previous_pts:
+            findings.append(
+                {
+                    "id": "OSD_TIMELINE_PTS_NON_MONOTONIC",
+                    "severity": "medium",
+                    "description": "Input PTS decreased between consecutive mapped frames.",
+                    "previous_frame": previous_frame,
+                    "current_frame": frame_number,
+                    "previous_pts_seconds": previous_pts,
+                    "current_pts_seconds": pts,
+                }
+            )
+        previous_pts = pts
+        previous_frame = frame_number
+    if missing_pts_start is not None:
+        findings.append(
+            {
+                "id": "OSD_TIMELINE_PTS_ABSENT_RANGE",
+                "severity": "low",
+                "description": "PTS was unavailable for a contiguous OSD-reading range.",
+                "start_frame": missing_pts_start,
+                "end_frame": int(rows[-1]["frame_number"]),
+            }
+        )
+    return findings
+
+
+def analyze(osd_json: Path, pts_csv: Path, output: Path) -> dict[str, object]:
+    osd_json = osd_json.expanduser().resolve(strict=True)
+    pts_csv = pts_csv.expanduser().resolve(strict=True)
+    rows = merge(read_json(osd_json), read_pts(pts_csv))
+    findings = timeline_findings(rows)
+    output = output.expanduser().resolve()
+    output.mkdir(parents=True, exist_ok=False)
+    columns = ["frame_number", "pts_seconds", "filename", "ocr_text", "parsed_timestamp"]
+    with (output / "osd_timeline.csv").open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(rows)
+    result: dict[str, object] = {
+        "schema_version": 1,
+        "module": "osd_timeline",
+        "frame_count": len(rows),
+        "mapped_pts_count": sum(row["pts_seconds"] is not None for row in rows),
+        "finding_count": len(findings),
+        "rows": rows,
+        "findings": findings,
+        "interpretation_boundary": (
+            "PTS values are mapped by frame number from an analyst-supplied CSV. The mapping "
+            "must be generated from the same decoder ordering as the OSD frame sequence."
+        ),
+    }
+    (output / "osd_timeline.json").write_text(
+        json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return result
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="video-forensics-osd-timeline")
+    parser.add_argument("osd_json", type=Path)
+    parser.add_argument("--pts-csv", required=True, type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    args = parser.parse_args()
+    try:
+        result = analyze(args.osd_json, args.pts_csv, args.output)
+    except (FileNotFoundError, FileExistsError, KeyError, TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps({"frame_count": result["frame_count"], "finding_count": result["finding_count"]}, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
