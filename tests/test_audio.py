@@ -1,0 +1,49 @@
+from __future__ import annotations
+
+from video_forensics.tools.audio import (
+    _normalize_packets,
+    _packet_windows,
+    _size_findings,
+    _timeline_findings,
+)
+
+
+def test_normalizes_packets_and_builds_windows() -> None:
+    payload = {
+        "packets": [
+            {"pts_time": "0.0", "duration_time": "0.5", "size": "100"},
+            {"pts_time": "0.5", "duration_time": "0.5", "size": "200"},
+            {"pts_time": "1.0", "duration_time": "0.5", "size": "300"},
+        ]
+    }
+    rows = _normalize_packets(payload)
+    windows = _packet_windows(rows)
+    assert len(rows) == 3
+    assert len(windows) == 2
+    assert windows[0]["packet_bytes"] == 300
+
+
+def test_detects_audio_timeline_gap() -> None:
+    rows = _normalize_packets(
+        {
+            "packets": [
+                {"pts_time": "0.0", "duration_time": "0.5", "size": "100"},
+                {"pts_time": "0.7", "duration_time": "0.5", "size": "100"},
+            ]
+        }
+    )
+    findings = _timeline_findings(rows)
+    assert findings[0]["kind"] == "audio_packet_timeline_discontinuity"
+    assert findings[0]["delta_seconds"] == 0.2
+
+
+def test_detects_audio_packet_size_regime() -> None:
+    windows = [
+        {"window_number": 1, "start_time": 0.0, "end_time": 1.0, "packet_bytes": 100},
+        {"window_number": 2, "start_time": 1.0, "end_time": 2.0, "packet_bytes": 101},
+        {"window_number": 3, "start_time": 2.0, "end_time": 3.0, "packet_bytes": 99},
+        {"window_number": 4, "start_time": 3.0, "end_time": 4.0, "packet_bytes": 1000},
+    ]
+    findings = _size_findings(windows)
+    assert len(findings) == 1
+    assert findings[0]["window_number"] == 4
