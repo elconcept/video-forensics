@@ -6,9 +6,18 @@ from pathlib import Path
 
 from video_forensics import __version__
 from video_forensics.manifest import atomic_write_json, base_manifest, utc_now
-from video_forensics.tools import container_structure, gop, integrity, metadata, timeline
+from video_forensics.tools import (
+    container_structure,
+    continuity,
+    duplicates,
+    frame_metrics,
+    gop,
+    integrity,
+    metadata,
+    timeline,
+)
 
-SUPPORTED_STAGES = ("integrity", "metadata", "container_structure", "timeline", "gop")
+SUPPORTED_STAGES = ("integrity", "metadata", "container_structure", "timeline", "gop", "frame_metrics", "continuity", "duplicates")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -55,6 +64,12 @@ def run_analysis(video: Path, output: Path, stages: list[str]) -> int:
             manifestation["stages"]["timeline"] = timeline.analyze(video, output)
         if "gop" in stages:
             manifestation["stages"]["gop"] = gop.analyze(video, output)
+        if "frame_metrics" in stages:
+            manifestation["stages"]["frame_metrics"] = frame_metrics.analyze(video, output)
+        if "continuity" in stages:
+            manifestation["stages"]["continuity"] = continuity.analyze(video, output)
+        if "duplicates" in stages:
+            manifestation["stages"]["duplicates"] = duplicates.analyze(video, output)
         manifestation["run"]["status"] = "completed"
         manifestation["run"]["completed_at_utc"] = utc_now()
         return 0

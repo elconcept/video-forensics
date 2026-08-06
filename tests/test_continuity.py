@@ -1,0 +1,38 @@
+from __future__ import annotations
+
+from video_forensics.tools.continuity import _correlate, _robust_outliers
+
+
+def test_robust_outliers_detects_large_metric_deviation() -> None:
+    rows = [
+        {"frame_number": str(index), "mae_previous": str(value)}
+        for index, value in enumerate([1, 2, 1, 2, 1, 2, 1, 100], start=1)
+    ]
+    findings = _robust_outliers(rows, "mae_previous")
+    assert len(findings) == 1
+    assert findings[0]["frame_number"] == 8
+
+
+def test_robust_outliers_returns_empty_for_constant_values() -> None:
+    rows = [
+        {"frame_number": str(index), "entropy": "3.0"}
+        for index in range(1, 9)
+    ]
+    assert _robust_outliers(rows, "entropy") == []
+
+
+def test_correlates_independent_signals_on_same_frame() -> None:
+    findings = [
+        {"kind": "duplicate_pts", "frame_number": 12, "source_stage": "timeline"},
+        {
+            "kind": "robust_metric_outlier",
+            "metric": "mae_previous",
+            "frame_number": 12,
+            "source_stage": "frame_metrics",
+        },
+        {"kind": "missing_picture_type", "frame_number": 20, "source_stage": "gop"},
+    ]
+    correlations = _correlate(findings)
+    assert len(correlations) == 1
+    assert correlations[0]["frame_number"] == 12
+    assert correlations[0]["signal_count"] == 2
