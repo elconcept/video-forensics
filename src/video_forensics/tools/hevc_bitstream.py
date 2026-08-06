@@ -7,6 +7,7 @@ from time import monotonic
 
 from video_forensics.manifest import atomic_write_json, utc_now
 from video_forensics.tools.hevc_poc import analyze_poc
+from video_forensics.tools.hevc_short_term_rps import parse_sps_short_term_rps
 from video_forensics.tools.hevc_slice_segments import parse_segment_sequence
 
 NAL_NAMES = {
@@ -107,7 +108,17 @@ def analyze(video: Path, output_dir: Path) -> dict[str, object]:
     from video_forensics.tools.hevc_poc import PPS, SPS
     sps_map = {int(item["sps_id"]): SPS(**item) for item in poc_analysis["sps"]}
     pps_map = {int(item["pps_id"]): PPS(**item) for item in poc_analysis["pps"]}
-    segment_analysis = parse_segment_sequence(rows, pps_map, sps_map)
+    sps_rps_analysis = {}
+    sps_rps_parsed = {}
+    for row in rows:
+        if int(row["nal_unit_type"]) == 33:
+            parsed = parse_sps_short_term_rps(bytes(row["payload"]))
+            sps_id = int(parsed["sps_id"])
+            sps_rps_parsed[sps_id] = parsed.pop("parsed_sets")
+            sps_rps_analysis[sps_id] = parsed
+    segment_analysis = parse_segment_sequence(
+        rows, pps_map, sps_map, sps_rps_parsed
+    )
     findings.extend(segment_analysis["findings"])
     counts = Counter(str(row["nal_unit_name"]) for row in rows)
     target = output_dir / "hevc_bitstream"
@@ -117,6 +128,7 @@ def analyze(video: Path, output_dir: Path) -> dict[str, object]:
     atomic_write_json(target / "findings.json", findings)
     atomic_write_json(target / "poc_analysis.json", poc_analysis)
     atomic_write_json(target / "slice_segments.json", segment_analysis)
+    atomic_write_json(target / "short_term_rps.json", sps_rps_analysis)
     _write_csv(target / "slice_segments.csv", segment_analysis["segments"])
     if poc_analysis["orphan_plan_draft"] is not None:
         atomic_write_json(target / "orphan_plan_draft.json", poc_analysis["orphan_plan_draft"])

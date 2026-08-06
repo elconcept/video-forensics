@@ -38,6 +38,11 @@ class BitReader:
         suffix = self.bits(leading_zero_bits) if leading_zero_bits else 0
         return (1 << leading_zero_bits) - 1 + suffix
 
+    def ue_signed(self) -> int:
+        code_num = self.ue()
+        magnitude = (code_num + 1) // 2
+        return magnitude if code_num % 2 else -magnitude
+
 
 def rbsp(payload: bytes) -> bytes:
     output = bytearray()

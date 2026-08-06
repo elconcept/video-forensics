@@ -43,7 +43,7 @@ Lista obejmuje elementy, które pozostają do implementacji, integracji albo wal
 - [x] Dokończyć parser SPS zamiast kończyć go po polach potrzebnych do `log2_max_poc_lsb`.
 - [x] Dokończyć parser PPS.
 - [x] Obsłużyć pełny nagłówek pierwszego i zależnego segmentu slice.
-- [ ] Poprawnie obsłużyć `slice_segment_address`.
+- [x] Poprawnie obsłużyć `slice_segment_address`.
 - [ ] Parsować short-term reference picture sets z SPS i slice header.
 - [ ] Parsować long-term reference pictures.
 - [ ] Wyprowadzać pełny graf zależności RPS dla każdego obrazu.

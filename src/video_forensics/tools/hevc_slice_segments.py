@@ -4,6 +4,10 @@ from dataclasses import asdict, dataclass, replace
 from typing import Any
 
 from video_forensics.tools.hevc_poc import IRAP_TYPES, PPS, SPS, BitReader, rbsp
+from video_forensics.tools.hevc_short_term_rps import (
+    ShortTermRPS,
+    parse_short_term_rps,
+)
 from video_forensics.tools.hevc_slice_address import (
     address_coordinates,
     derive_ctb_geometry,
@@ -33,6 +37,9 @@ class SliceSegmentHeader:
     poc_lsb: int | None
     header_bits_consumed: int
     header_bytes_covered: int
+    short_term_ref_pic_set_sps_flag: int | None
+    short_term_ref_pic_set_idx: int | None
+    short_term_rps: dict[str, object] | None
     parser_status: str
 
 
@@ -44,6 +51,7 @@ def parse_slice_segment_header(
     pps_map: dict[int, PPS],
     sps_map: dict[int, SPS],
     preceding_independent: SliceSegmentHeader | None,
+    sps_rps: dict[int, list[ShortTermRPS]] | None = None,
 ) -> SliceSegmentHeader:
     reader = BitReader(rbsp(nal_payload[2:]))
     first = reader.bit()
@@ -93,8 +101,28 @@ def parse_slice_segment_header(
     pic_output_flag = reader.bit() if pps.output_flag_present_flag else 1
     colour_plane_id = reader.bits(2) if sps.separate_colour_plane_flag else 0
     poc_lsb = None
+    short_term_ref_pic_set_sps_flag = None
+    short_term_ref_pic_set_idx = None
+    short_term_rps = None
     if nal_type not in {19, 20}:
         poc_lsb = reader.bits(sps.log2_max_poc_lsb)
+        available = [] if sps_rps is None else sps_rps.get(sps.sps_id, [])
+        short_term_ref_pic_set_sps_flag = reader.bit()
+        if not short_term_ref_pic_set_sps_flag:
+            parsed = parse_short_term_rps(
+                reader,
+                len(available),
+                len(available),
+                available,
+                from_slice_header=True,
+            )
+            short_term_rps = parsed.to_dict()
+        elif available:
+            index_bits = (len(available) - 1).bit_length()
+            short_term_ref_pic_set_idx = reader.bits(index_bits) if index_bits else 0
+            if short_term_ref_pic_set_idx >= len(available):
+                raise ValueError("short_term_ref_pic_set_idx outside SPS RPS list")
+            short_term_rps = available[short_term_ref_pic_set_idx].to_dict()
 
     return SliceSegmentHeader(
         nal_number=nal_number,
@@ -117,6 +145,9 @@ def parse_slice_segment_header(
         poc_lsb=poc_lsb,
         header_bits_consumed=reader.position,
         header_bytes_covered=(reader.position + 7) // 8,
+        short_term_ref_pic_set_sps_flag=short_term_ref_pic_set_sps_flag,
+        short_term_ref_pic_set_idx=short_term_ref_pic_set_idx,
+        short_term_rps=short_term_rps,
         parser_status="independent_header_core_complete",
     )
 
@@ -125,6 +156,7 @@ def parse_segment_sequence(
     nals: list[dict[str, object]],
     pps_map: dict[int, PPS],
     sps_map: dict[int, SPS],
+    sps_rps: dict[int, list[ShortTermRPS]] | None = None,
 ) -> dict[str, object]:
     segments: list[SliceSegmentHeader] = []
     errors: list[dict[str, object]] = []
@@ -149,6 +181,7 @@ def parse_segment_sequence(
                 pps_map,
                 sps_map,
                 preceding_independent,
+                sps_rps,
             )
             if not header.dependent_slice_segment_flag:
                 preceding_independent = header

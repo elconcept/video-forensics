@@ -37,6 +37,9 @@ def test_dependent_segment_inherits_independent_fields() -> None:
         poc_lsb=7,
         header_bits_consumed=8,
         header_bytes_covered=1,
+        short_term_ref_pic_set_sps_flag=None,
+        short_term_ref_pic_set_idx=None,
+        short_term_rps=None,
         parser_status="independent_header_core_complete",
     )
     # first=0, pps_id ue(0)=1, dependent=1, address=01 for 2 CTBs
