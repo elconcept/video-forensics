@@ -1,0 +1,265 @@
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import re
+import sys
+from collections import defaultdict
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+TIMESTAMP = re.compile(r"^\d{8}T\d{6}Z$")
+
+
+def read_json(path: Path) -> dict[str, Any] | None:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def timestamp_runs(file_root: Path) -> list[Path]:
+    return sorted(
+        path
+        for path in file_root.iterdir()
+        if path.is_dir() and TIMESTAMP.fullmatch(path.name)
+    )
+
+
+def module_name(path: Path, payload: dict[str, Any]) -> str:
+    return str(payload.get("module") or path.stem)
+
+
+def scalar_metrics(payload: dict[str, Any]) -> dict[str, object]:
+    keys = (
+        "status",
+        "frame_count",
+        "picture_count",
+        "finding_count",
+        "variant_count",
+        "decoder_count",
+        "series_count",
+        "mapped_pts_count",
+        "poc_regression_count",
+        "dependent_slice_segment_count",
+        "slice_segment_error_count",
+        "all_successful",
+    )
+    metrics = {
+        key: payload[key]
+        for key in keys
+        if key in payload and isinstance(payload[key], (str, int, float, bool))
+    }
+    summary = payload.get("summary")
+    if isinstance(summary, dict):
+        for key, value in summary.items():
+            if isinstance(value, (str, int, float, bool)):
+                metrics[f"summary.{key}"] = value
+    return metrics
+
+
+def input_sha256(payload: dict[str, Any]) -> str | None:
+    for key in ("input", "source"):
+        value = payload.get(key)
+        if isinstance(value, dict) and value.get("sha256"):
+            return str(value["sha256"]).lower()
+    value = payload.get("input_sha256")
+    return str(value).lower() if value else None
+
+
+def findings(payload: Any) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    if isinstance(payload, dict):
+        current = payload.get("findings")
+        if isinstance(current, list):
+            result.extend(item for item in current if isinstance(item, dict))
+        for key, value in payload.items():
+            if key != "findings" and isinstance(value, (dict, list)):
+                result.extend(findings(value))
+    elif isinstance(payload, list):
+        for value in payload:
+            if isinstance(value, (dict, list)):
+                result.extend(findings(value))
+    return result
+
+
+def finding_ids(payload: dict[str, Any]) -> list[str]:
+    return sorted(
+        {
+            str(item.get("id", "UNNAMED_FINDING"))
+            for item in findings(payload)
+        }
+    )
+
+
+def inventory_run(run: Path) -> dict[str, object]:
+    modules: dict[str, list[dict[str, object]]] = defaultdict(list)
+    hashes: set[str] = set()
+    for path in sorted(run.rglob("*.json")):
+        if "cross_run_comparison" in path.parts:
+            continue
+        payload = read_json(path)
+        if payload is None:
+            continue
+        digest = input_sha256(payload)
+        if digest:
+            hashes.add(digest)
+        modules[module_name(path, payload)].append(
+            {
+                "path": str(path.relative_to(run)),
+                "metrics": scalar_metrics(payload),
+                "finding_ids": finding_ids(payload),
+            }
+        )
+    summary = run / "SUMMARY.md"
+    return {
+        "timestamp": run.name,
+        "path": str(run),
+        "input_sha256_values": sorted(hashes),
+        "summary_present": summary.is_file(),
+        "summary_sha256": hashlib.sha256(summary.read_bytes()).hexdigest()
+        if summary.is_file()
+        else None,
+        "modules": dict(sorted(modules.items())),
+    }
+
+
+def compare_runs(runs: list[dict[str, object]]) -> dict[str, object]:
+    all_modules = sorted(
+        {
+            module
+            for run in runs
+            for module in run["modules"]
+        }
+    )
+    comparisons: list[dict[str, object]] = []
+    for module in all_modules:
+        by_run: dict[str, object] = {}
+        canonical: set[str] = set()
+        for run in runs:
+            entries = run["modules"].get(module, [])
+            by_run[str(run["timestamp"])] = entries
+            canonical.add(json.dumps(entries, ensure_ascii=False, sort_keys=True))
+        comparisons.append(
+            {
+                "module": module,
+                "consistent_across_runs": len(canonical) <= 1,
+                "runs": by_run,
+            }
+        )
+    source_hashes = sorted(
+        {
+            digest
+            for run in runs
+            for digest in run["input_sha256_values"]
+        }
+    )
+    return {
+        "source_hash_consistent": len(source_hashes) <= 1,
+        "source_sha256_values": source_hashes,
+        "module_count": len(all_modules),
+        "different_module_count": sum(
+            not item["consistent_across_runs"] for item in comparisons
+        ),
+        "modules": comparisons,
+    }
+
+
+def render_markdown(file_root: Path, result: dict[str, object]) -> str:
+    comparison = result["comparison"]
+    lines = [
+        "# Porównanie wszystkich przebiegów",
+        "",
+        f"- Plik: `{file_root.name}`",
+        f"- Katalog: `{file_root}`",
+        f"- Liczba przebiegów: `{result['run_count']}`",
+        f"- Zgodność SHA-256 źródła: `{'tak' if comparison['source_hash_consistent'] else 'nie'}`",
+        f"- Moduły z różnymi wynikami: `{comparison['different_module_count']}`",
+        f"- Wygenerowano UTC: `{result['generated_at_utc']}`",
+        "",
+        "## Przebiegi",
+        "",
+    ]
+    for run in result["runs"]:
+        lines.append(
+            f"- `{run['timestamp']}`: {len(run['modules'])} modułów, "
+            f"SUMMARY.md: {'tak' if run['summary_present'] else 'nie'}"
+        )
+    lines.extend(["", "## Różnice między przebiegami", ""])
+    differences = [
+        item for item in comparison["modules"]
+        if not item["consistent_across_runs"]
+    ]
+    if not differences:
+        lines.append("Nie wykryto różnic w zebranych metrykach i identyfikatorach ustaleń.")
+    for item in differences:
+        lines.extend([f"### {item['module']}", ""])
+        for timestamp, entries in item["runs"].items():
+            serialized = json.dumps(entries, ensure_ascii=False, sort_keys=True)
+            if len(serialized) > 1800:
+                serialized = serialized[:1800] + "…"
+            lines.append(f"- `{timestamp}`: `{serialized}`")
+        lines.append("")
+    lines.extend(
+        [
+            "## Zakres porównania",
+            "",
+            "Porównanie obejmuje manifesty JSON wszystkich timestampów dla tego samego pliku: statusy, metryki skalarne i identyfikatory ustaleń. Szczegółowe obrazy, CSV i logi pozostają w katalogach poszczególnych przebiegów.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def analyze(file_root: Path) -> dict[str, object]:
+    file_root = file_root.expanduser().resolve(strict=True)
+    runs = [inventory_run(path) for path in timestamp_runs(file_root)]
+    if not runs:
+        raise ValueError(f"no timestamp result directories found: {file_root}")
+    result: dict[str, object] = {
+        "schema_version": 1,
+        "module": "cross_run_compare",
+        "generated_at_utc": datetime.now(UTC).isoformat(),
+        "file_root": str(file_root),
+        "run_count": len(runs),
+        "runs": runs,
+        "comparison": compare_runs(runs),
+    }
+    target = file_root / "cross_run_comparison"
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "comparison.json").write_text(
+        json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (target / "COMPARISON.md").write_text(
+        render_markdown(file_root, result), encoding="utf-8", newline="\n"
+    )
+    return result
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="video-forensics-cross-run-compare")
+    parser.add_argument("file_results_root", type=Path)
+    args = parser.parse_args()
+    try:
+        result = analyze(args.file_results_root)
+    except (FileNotFoundError, OSError, TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    print(
+        json.dumps(
+            {
+                "run_count": result["run_count"],
+                "different_module_count": result["comparison"]["different_module_count"],
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

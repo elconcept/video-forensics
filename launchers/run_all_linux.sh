@@ -182,6 +182,7 @@ for INPUT in "${FILES[@]}"; do
     "$OUT/matrix" --output "$OUT/${SAFE_STEM}_matrix.zip"
 
   video-forensics-result-summary "$OUT"
+  video-forensics-cross-run-compare "$RESULTS_DIR/$SAFE_STEM"
 done
 
 printf 'Completed session timestamp: %s\n' "$SESSION"

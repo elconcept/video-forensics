@@ -21,6 +21,7 @@ dev = [
 ]
 
 [project.scripts]
+video-forensics-cross-run-compare = "video_forensics.native.cross_run_compare:main"
 video-forensics-orphan-independent-run = "video_forensics.native.orphan_independent_run:main"
 video-forensics-decode-orphan-libde265 = "video_forensics.native.decode_orphan_libde265:main"
 video-forensics-result-summary = "video_forensics.native.result_summary:main"

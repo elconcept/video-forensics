@@ -166,6 +166,9 @@ foreach ($file in $files) {
 
     & video-forensics-result-summary $out
     if ($LASTEXITCODE -ne 0) { throw "summary failed for $($file.Name)" }
+
+    & video-forensics-cross-run-compare $fileRoot
+    if ($LASTEXITCODE -ne 0) { throw "cross-run comparison failed for $($file.Name)" }
 }
 
 Write-Host "Completed session timestamp: $session"
