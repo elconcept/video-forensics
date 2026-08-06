@@ -1,0 +1,44 @@
+from pathlib import Path
+
+path = Path("src/video_forensics/cli.py")
+text = path.read_text(encoding="utf-8")
+text = text.replace(
+    "    duplicates,\n    extract_frames,",
+    "    decoder_diagnostics,\n    duplicates,\n    elementary_stream,\n    extract_frames,",
+)
+text = text.replace(
+    "    gop,\n    integrity,",
+    "    gop,\n    hevc_bitstream,\n    integrity,",
+)
+needle = '''        if "container_structure" in stages:
+            manifestation["stages"]["container_structure"] = (
+                container_structure.analyze(video, output)
+            )
+'''
+addition = needle + '''        if "elementary_stream" in stages:
+            manifestation["stages"]["elementary_stream"] = elementary_stream.analyze(
+                video, output
+            )
+        if "hevc_bitstream" in stages:
+            manifestation["stages"]["hevc_bitstream"] = hevc_bitstream.analyze(video, output)
+        if "decoder_diagnostics" in stages:
+            manifestation["stages"]["decoder_diagnostics"] = decoder_diagnostics.analyze(
+                video, output
+            )
+'''
+if needle not in text:
+    raise SystemExit("Cannot find container stage in cli.py")
+text = text.replace(needle, addition)
+path.write_text(text, encoding="utf-8")
+
+pipeline = Path("src/video_forensics/pipeline.py")
+p = pipeline.read_text(encoding="utf-8")
+p = p.replace(
+    '    "container_structure": (),\n',
+    '    "container_structure": (),\n    "elementary_stream": (),\n    "hevc_bitstream": ("elementary_stream",),\n    "decoder_diagnostics": (),\n',
+)
+p = p.replace(
+    '    "container_structure",\n    "timeline",',
+    '    "container_structure",\n    "elementary_stream",\n    "hevc_bitstream",\n    "decoder_diagnostics",\n    "timeline",',
+)
+pipeline.write_text(p, encoding="utf-8")

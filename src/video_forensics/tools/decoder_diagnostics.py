@@ -1,0 +1,54 @@
+from __future__ import annotations
+
+import re
+from pathlib import Path
+from time import monotonic
+
+from video_forensics.manifest import atomic_write_json, utc_now
+from video_forensics.process import run_command
+
+FFMPEG = Path("/usr/bin/ffmpeg")
+MISSING_REFERENCE = re.compile(r"Could not find ref with POC\s+(-?\d+)")
+
+
+def _decode_run(video: Path, threads: int, timeout: int) -> tuple[dict[str, object], list[int]]:
+    argv = [
+        str(FFMPEG), "-nostdin", "-v", "warning", "-threads", str(threads),
+        "-i", str(video), "-map", "0:v:0", "-f", "null", "-",
+    ]
+    command = run_command(argv, timeout=timeout)
+    missing = [int(match.group(1)) for match in MISSING_REFERENCE.finditer(command.stderr)]
+    return command.to_dict(), missing
+
+
+def analyze(video: Path, output_dir: Path, *, timeout: int = 3600) -> dict[str, object]:
+    video = video.resolve(strict=True)
+    if not video.is_file():
+        raise ValueError(f"input is not a regular file: {video}")
+
+    started = monotonic()
+    runs: dict[str, object] = {}
+    all_missing: list[dict[str, object]] = []
+    for name, threads in (("single_thread", 1), ("automatic_threads", 0)):
+        command, missing = _decode_run(video, threads, timeout)
+        runs[name] = {"threads": threads, "command": command, "missing_reference_pocs": missing}
+        all_missing.extend({"decoder_run": name, "poc": poc} for poc in missing)
+
+    decoder_dependent = bool(all_missing)
+    result: dict[str, object] = {
+        "schema_version": 1,
+        "stage": "decoder_diagnostics",
+        "completed_at_utc": utc_now(),
+        "duration_seconds": round(monotonic() - started, 6),
+        "runs": runs,
+        "decode_status": {
+            "missing_references_detected": decoder_dependent,
+            "decoder_dependent_pixel_analysis": decoder_dependent,
+            "missing_reference_count": len(all_missing),
+        },
+        "findings": all_missing,
+    }
+    target = output_dir / "decoder_diagnostics"
+    atomic_write_json(target / "decoder_diagnostics.json", result)
+    atomic_write_json(target / "findings.json", all_missing)
+    return result

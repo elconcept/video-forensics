@@ -1,0 +1,128 @@
+from __future__ import annotations
+
+import csv
+from collections import Counter
+from pathlib import Path
+from time import monotonic
+
+from video_forensics.manifest import atomic_write_json, utc_now
+
+NAL_NAMES = {
+    0: "TRAIL_N", 1: "TRAIL_R", 2: "TSA_N", 3: "TSA_R",
+    4: "STSA_N", 5: "STSA_R", 6: "RADL_N", 7: "RADL_R",
+    8: "RASL_N", 9: "RASL_R", 16: "BLA_W_LP", 17: "BLA_W_RADL",
+    18: "BLA_N_LP", 19: "IDR_W_RADL", 20: "IDR_N_LP", 21: "CRA_NUT",
+    32: "VPS", 33: "SPS", 34: "PPS", 35: "AUD", 39: "PREFIX_SEI", 40: "SUFFIX_SEI",
+}
+VCL_TYPES = set(range(32))
+IRAP_TYPES = set(range(16, 24))
+
+
+def _start_codes(data: bytes) -> list[tuple[int, int]]:
+    starts: list[tuple[int, int]] = []
+    index = 0
+    while index <= len(data) - 3:
+        if data[index:index + 4] == b"\x00\x00\x00\x01":
+            starts.append((index, 4))
+            index += 4
+        elif data[index:index + 3] == b"\x00\x00\x01":
+            starts.append((index, 3))
+            index += 3
+        else:
+            index += 1
+    return starts
+
+
+def parse_annex_b(path: Path) -> list[dict[str, object]]:
+    data = path.read_bytes()
+    starts = _start_codes(data)
+    rows: list[dict[str, object]] = []
+    for number, (offset, prefix_size) in enumerate(starts, start=1):
+        payload_offset = offset + prefix_size
+        end = starts[number][0] if number < len(starts) else len(data)
+        if end - payload_offset < 2:
+            continue
+        first, second = data[payload_offset], data[payload_offset + 1]
+        nal_type = (first >> 1) & 0x3F
+        temporal_id_plus1 = second & 0x07
+        rows.append({
+            "nal_number": len(rows) + 1,
+            "offset": offset,
+            "prefix_size": prefix_size,
+            "payload_offset": payload_offset,
+            "size_bytes": end - offset,
+            "nal_unit_type": nal_type,
+            "nal_unit_name": NAL_NAMES.get(nal_type, f"NAL_{nal_type}"),
+            "nuh_layer_id": ((first & 0x01) << 5) | (second >> 3),
+            "nuh_temporal_id_plus1": temporal_id_plus1,
+            "valid_temporal_id": temporal_id_plus1 != 0,
+            "is_vcl": nal_type in VCL_TYPES,
+            "is_irap": nal_type in IRAP_TYPES,
+        })
+    return rows
+
+
+def _findings(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    findings: list[dict[str, object]] = []
+    if not rows:
+        findings.append({"kind": "no_annex_b_start_codes"})
+        return findings
+    for row in rows:
+        if not row["valid_temporal_id"]:
+            findings.append({
+                "kind": "invalid_temporal_id_plus1",
+                "nal_number": row["nal_number"],
+                "offset": row["offset"],
+            })
+    if not any(row["is_irap"] for row in rows):
+        findings.append({"kind": "no_irap_nal_found"})
+    return findings
+
+
+def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    columns = list(rows[0]) if rows else ["nal_number"]
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def analyze(video: Path, output_dir: Path) -> dict[str, object]:
+    video = video.resolve(strict=True)
+    if not video.is_file():
+        raise ValueError(f"input is not a regular file: {video}")
+    stream = output_dir / "elementary_stream" / "video.hevc"
+    if not stream.is_file():
+        raise FileNotFoundError(f"required Annex B stream not found: {stream}")
+
+    started = monotonic()
+    rows = parse_annex_b(stream)
+    findings = _findings(rows)
+    counts = Counter(str(row["nal_unit_name"]) for row in rows)
+    target = output_dir / "hevc_bitstream"
+    _write_csv(target / "nal_units.csv", rows)
+    atomic_write_json(target / "findings.json", findings)
+    result: dict[str, object] = {
+        "schema_version": 1,
+        "stage": "hevc_bitstream",
+        "completed_at_utc": utc_now(),
+        "duration_seconds": round(monotonic() - started, 6),
+        "scope": {
+            "implemented": "Annex B NAL boundaries, headers, types, layer and temporal identifiers",
+            "not_yet_implemented": "SPS/PPS syntax, slice headers, POC derivation, RPS dependency graph, CABAC",
+        },
+        "summary": {
+            "nal_count": len(rows),
+            "vcl_count": sum(bool(row["is_vcl"]) for row in rows),
+            "irap_count": sum(bool(row["is_irap"]) for row in rows),
+            "type_counts": dict(sorted(counts.items())),
+            "finding_count": len(findings),
+        },
+        "outputs": {
+            "nal_units": "hevc_bitstream/nal_units.csv",
+            "findings": "hevc_bitstream/findings.json",
+        },
+    }
+    atomic_write_json(target / "hevc_bitstream.json", result)
+    return result

@@ -1,0 +1,5 @@
+{
+  "profile_id": "windows_intel_qsv",
+  "description": "Windows native FFmpeg HEVC decode through Intel QSV",
+  "ffmpeg_args": ["-init_hw_device", "qsv=qs", "-filter_hw_device", "qs", "-hwaccel", "qsv", "-hwaccel_output_format", "qsv"]
+}

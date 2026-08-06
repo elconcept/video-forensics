@@ -1,0 +1,12 @@
+# Decoder-dependent output policy
+
+Decoded pixels are not automatically treated as an unqualified representation of the encoded stream.
+
+Before pixel-domain stages are interpreted, the project records:
+
+- Annex B elementary-stream identity
+- HEVC NAL structure
+- software-decoder diagnostics in single-thread and automatic-thread modes
+- missing-reference POC messages
+
+When missing references are detected, pixel-domain outputs must be described as decoder-dependent. The initial HEVC parser in Step 19 does not yet derive POC or RPS from slice syntax; that is a separate implementation milestone.

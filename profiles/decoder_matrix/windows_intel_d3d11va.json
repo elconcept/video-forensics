@@ -1,0 +1,5 @@
+{
+  "profile_id": "windows_intel_d3d11va",
+  "description": "Windows native FFmpeg HEVC decode through D3D11VA with Intel device selection",
+  "ffmpeg_args": ["-init_hw_device", "d3d11va=dx:0,device_type=integrated", "-filter_hw_device", "dx", "-hwaccel", "d3d11va", "-hwaccel_output_format", "d3d11"]
+}

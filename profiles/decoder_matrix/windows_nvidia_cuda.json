@@ -1,0 +1,5 @@
+{
+  "profile_id": "windows_nvidia_cuda",
+  "description": "Windows native FFmpeg HEVC decode through CUDA/NVDEC",
+  "ffmpeg_args": ["-init_hw_device", "cuda=cu:0", "-filter_hw_device", "cu", "-hwaccel", "cuda", "-hwaccel_output_format", "cuda"]
+}
