@@ -1,0 +1,130 @@
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+from video_forensics.native.libde265_run import find_dec265
+from video_forensics.native.orphan_pipeline import find_ffmpeg, run_pipeline
+from video_forensics.native.orphan_stream_builder import parse_nal_units
+from video_forensics.tools.hevc_poc import parse_sps
+
+
+def detect_geometry(annex_b: Path) -> tuple[int, int]:
+    for row in parse_nal_units(annex_b):
+        if int(row["nal_unit_type"]) != 33:
+            continue
+        unit = bytes(row["bytes"])
+        prefix_size = 4 if unit.startswith(b"\x00\x00\x00\x01") else 3
+        sps = parse_sps(unit[prefix_size:])
+        return sps.width, sps.height
+    raise ValueError("Annex B stream contains no parseable SPS")
+
+
+def run(
+    annex_b: Path,
+    plan: Path,
+    output: Path,
+    *,
+    dec265_path: str | None,
+    ffmpeg_path: str | None,
+    pixel_format: str,
+    threads: int,
+    sigma_threshold: float,
+    host_profile: Path | None,
+    timeout: int,
+) -> dict[str, object]:
+    annex_b = annex_b.expanduser().resolve(strict=True)
+    plan = plan.expanduser().resolve(strict=True)
+    dec265 = find_dec265(dec265_path)
+    if dec265 is None:
+        raise FileNotFoundError("cannot find dec265/de265dec; pass --dec265")
+    ffmpeg = find_ffmpeg(ffmpeg_path)
+    width, height = detect_geometry(annex_b)
+    result = run_pipeline(
+        annex_b,
+        plan,
+        output,
+        ffmpeg=ffmpeg,
+        sigma_threshold=sigma_threshold,
+        external_decoder_roots=[],
+        host_profile=host_profile,
+        timeout=timeout,
+        dec265=dec265,
+        width=width,
+        height=height,
+        pixel_format=pixel_format,
+        dec265_threads=threads,
+    )
+    return {
+        "schema_version": 1,
+        "module": "orphan_independent_run",
+        "annex_b": str(annex_b),
+        "plan": str(plan),
+        "output": str(output.expanduser().resolve()),
+        "dec265": str(dec265),
+        "ffmpeg": str(ffmpeg),
+        "geometry": {
+            "width": width,
+            "height": height,
+            "pixel_format": pixel_format,
+            "source": "SPS dimensions; pixel format selected by command option",
+        },
+        "pipeline_stages": result["stages"],
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        prog="video-forensics-orphan-independent-run"
+    )
+    parser.add_argument("annex_b", type=Path)
+    parser.add_argument("--plan", required=True, type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--dec265")
+    parser.add_argument("--ffmpeg")
+    parser.add_argument(
+        "--pixel-format",
+        choices=("yuv420p", "yuv444p", "gray"),
+        default="yuv420p",
+    )
+    parser.add_argument("--threads", type=int, default=0)
+    parser.add_argument("--sigma-threshold", type=float, default=8.0)
+    parser.add_argument("--host-profile", type=Path)
+    parser.add_argument("--timeout", type=int, default=7200)
+    args = parser.parse_args()
+    try:
+        result = run(
+            args.annex_b,
+            args.plan,
+            args.output,
+            dec265_path=args.dec265,
+            ffmpeg_path=args.ffmpeg,
+            pixel_format=args.pixel_format,
+            threads=args.threads,
+            sigma_threshold=args.sigma_threshold,
+            host_profile=args.host_profile,
+            timeout=args.timeout,
+        )
+    except (
+        FileNotFoundError,
+        FileExistsError,
+        KeyError,
+        RuntimeError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    summary_path = Path(result["output"]) / "orphan_independent_run.json"
+    summary_path.write_text(
+        json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    print(json.dumps(result["pipeline_stages"], indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
