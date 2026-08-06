@@ -5,7 +5,7 @@ log() { printf '[bootstrap] %s\n' "$*"; }
 has() { command -v "$1" >/dev/null 2>&1; }
 
 REQUIRED_PACKAGES=(python3 python3-venv python3-pip ffmpeg)
-OPTIONAL_PACKAGES=(mediainfo libimage-exiftool-perl tesseract-ocr gpac libde265-examples)
+OPTIONAL_PACKAGES=(mediainfo libimage-exiftool-perl tesseract-ocr gpac libde265-examples pciutils vainfo)
 
 missing_required=()
 has python3 || missing_required+=(python3 python3-venv python3-pip)
@@ -16,6 +16,8 @@ has mediainfo || missing_optional+=(mediainfo)
 has exiftool || missing_optional+=(libimage-exiftool-perl)
 has tesseract || missing_optional+=(tesseract-ocr)
 has MP4Box || missing_optional+=(gpac)
+has lspci || missing_optional+=(pciutils)
+has vainfo || missing_optional+=(vainfo)
 if ! has dec265 && ! has de265dec; then missing_optional+=(libde265-examples); fi
 
 if (( ${#missing_required[@]} || ${#missing_optional[@]} )); then
