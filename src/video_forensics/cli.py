@@ -6,9 +6,9 @@ from pathlib import Path
 
 from video_forensics import __version__
 from video_forensics.manifest import atomic_write_json, base_manifest, utc_now
-from video_forensics.tools import integrity, metadata
+from video_forensics.tools import container_structure, integrity, metadata
 
-SUPPORTED_STAGES = ("integrity", "metadata")
+SUPPORTED_STAGES = ("integrity", "metadata", "container_structure")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -57,6 +57,10 @@ def run_analysis(video: Path, output: Path, stages: list[str]) -> int:
             metadata_result = metadata.analyze(video, output)
             manifestation["stages"]["metadata"] = metadata_result
             manifestation["tools"].update(metadata_result["tools"])
+        if "container_structure" in stages:
+            manifestation["stages"]["container_structure"] = container_structure.analyze(
+                video, output
+            )
         manifestation["run"]["status"] = "completed"
         manifestation["run"]["completed_at_utc"] = utc_now()
         return 0
