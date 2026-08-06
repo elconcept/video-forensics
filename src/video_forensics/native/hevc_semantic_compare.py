@@ -7,6 +7,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from video_forensics.native.hevc_semantic_fields import (
+    canonicalize,
+    category_coverage,
+)
+
 PARAMETER_SET_TYPES = {32: "vps", 33: "sps", 34: "pps"}
 SLICE_TYPES = set(range(32))
 FFMPEG_FIELD = re.compile(
@@ -68,7 +73,7 @@ def h265nal_records(primary: dict[str, Any]) -> list[dict[str, Any]]:
                 "nal_number": nal.get("nal_number"),
                 "nal_unit_type": nal.get("nal_unit_type"),
                 "kind": kind,
-                "fields": flatten(value),
+                "fields": canonicalize(flatten(value)),
             }
         )
     return records
@@ -90,7 +95,7 @@ def legacy_records(legacy: dict[str, Any]) -> list[dict[str, Any]]:
                         "nal_number": value.get("nal_number", index),
                         "nal_unit_type": value.get("nal_unit_type"),
                         "kind": kind,
-                        "fields": flatten(value.get("fields", value)),
+                        "fields": canonicalize(flatten(value.get("fields", value))),
                     }
                 )
     return records
@@ -165,6 +170,18 @@ def compare(
     comparable_count = sum(
         item.get("shared_field_count", 0) > 0 for item in record_comparisons
     )
+    shared_keys = {
+        field
+        for item in record_comparisons
+        for mismatch in item.get("mismatches", [])
+        for field in [mismatch["field"]]
+    }
+    for item in record_comparisons:
+        if item.get("shared_field_count", 0):
+            left = primary_items[int(item["record_index"])]["fields"]
+            right = legacy_items[int(item["record_index"])]["fields"]
+            shared_keys.update(set(left) & set(right))
+    coverage = category_coverage(shared_keys)
     legacy_agreement = (
         legacy is not None
         and comparable_count > 0
@@ -183,6 +200,11 @@ def compare(
         "comparable_record_count": comparable_count,
         "field_mismatch_count": mismatch_count,
         "legacy_semantic_agreement": legacy_agreement,
+        "canonical_field_coverage": coverage,
+        "rps_comparison_complete": (
+            coverage["short_term_rps"]["coverage_fraction"] == 1.0
+            and coverage["long_term_rps"]["coverage_fraction"] == 1.0
+        ),
         "ffmpeg_control_available": ffmpeg_control_available,
         "authoritative_for_high_weight": ffmpeg_control_available,
         "records": record_comparisons,
