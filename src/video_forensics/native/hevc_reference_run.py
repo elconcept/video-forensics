@@ -1,0 +1,180 @@
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+
+def resolve_program(explicit: str | None, name: str) -> str:
+    candidate = explicit or shutil.which(name)
+    if not candidate:
+        raise FileNotFoundError(f"cannot find {name}")
+    return str(Path(candidate).expanduser().resolve(strict=True))
+
+
+def run_command(argv: list[str], log: Path, timeout: int) -> dict[str, Any]:
+    completed = subprocess.run(
+        argv,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+    log.write_text(
+        "COMMAND\n" + json.dumps(argv, ensure_ascii=False) +
+        "\n\nSTDOUT\n" + completed.stdout +
+        "\n\nSTDERR\n" + completed.stderr,
+        encoding="utf-8",
+    )
+    return {
+        "argv": argv,
+        "returncode": completed.returncode,
+        "stdout": completed.stdout,
+        "stderr": completed.stderr,
+        "log": str(log),
+    }
+
+
+def newest_comparison(file_root: Path) -> Path:
+    candidates = sorted(
+        file_root.glob(
+            "*/hevc_parser_migration/reference_comparison/reference_comparison.json"
+        )
+    )
+    if not candidates:
+        raise FileNotFoundError("no reference_comparison.json produced")
+    return candidates[-1].resolve(strict=True)
+
+
+def execute(
+    repository: Path,
+    *,
+    source: Path,
+    case_id: str,
+    config: Path,
+    output: Path,
+    launcher: Path,
+    python: str,
+    timeout: int,
+) -> dict[str, Any]:
+    repository = repository.expanduser().resolve(strict=True)
+    source = source.expanduser().resolve(strict=True)
+    config = config.expanduser().resolve()
+    output = output.expanduser().resolve()
+    output.mkdir(parents=True, exist_ok=False)
+
+    launcher_result = run_command(
+        [str(launcher)], output / "01_launcher.log", timeout
+    )
+    if launcher_result["returncode"] != 0:
+        raise RuntimeError("analysis launcher failed; see 01_launcher.log")
+
+    file_root = repository / "work/results" / source.stem
+    comparison = newest_comparison(file_root)
+    enroll_result = run_command(
+        [
+            python,
+            "-m",
+            "video_forensics.native.hevc_reference_enroll",
+            "--config",
+            str(config),
+            "--case-id",
+            case_id,
+            "--source",
+            str(source),
+            "--comparison",
+            str(comparison),
+        ],
+        output / "02_enroll.log",
+        timeout,
+    )
+    if enroll_result["returncode"] != 0:
+        raise RuntimeError("reference enrollment failed; see 02_enroll.log")
+
+    gate_output = output / "regression_gate.json"
+    gate_result = run_command(
+        [
+            python,
+            "-m",
+            "video_forensics.native.hevc_migration_regression",
+            str(config),
+            "--output",
+            str(gate_output),
+        ],
+        output / "03_regression_gate.log",
+        timeout,
+    )
+    gate = json.loads(gate_output.read_text(encoding="utf-8"))
+    if not isinstance(gate, dict):
+        raise TypeError("regression gate output must be an object")
+
+    result = {
+        "schema_version": 1,
+        "module": "hevc_reference_run",
+        "completed_at_utc": datetime.now(UTC).isoformat(),
+        "source": str(source),
+        "case_id": case_id,
+        "comparison": str(comparison),
+        "config": str(config),
+        "launcher_returncode": launcher_result["returncode"],
+        "enroll_returncode": enroll_result["returncode"],
+        "gate_returncode": gate_result["returncode"],
+        "regression_passed": bool(gate.get("passed")),
+        "legacy_removal_ready": bool(gate.get("legacy_removal_ready")),
+        "gate": gate,
+    }
+    (output / "reference_run.json").write_text(
+        json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return result
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="video-forensics-hevc-reference-run")
+    parser.add_argument("--repository", type=Path, default=Path("."))
+    parser.add_argument("--source", type=Path, default=Path("work/evidence/1796.mp4"))
+    parser.add_argument("--case-id", default="1796-main")
+    parser.add_argument(
+        "--config", type=Path, default=Path("config/hevc_migration_references.json")
+    )
+    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--launcher", type=Path, default=Path("launchers/run_all_linux.sh"))
+    parser.add_argument("--python")
+    parser.add_argument("--timeout", type=int, default=14400)
+    args = parser.parse_args()
+    try:
+        repository = args.repository.expanduser().resolve(strict=True)
+        result = execute(
+            repository,
+            source=repository / args.source,
+            case_id=args.case_id,
+            config=repository / args.config,
+            output=repository / args.output,
+            launcher=(repository / args.launcher).resolve(strict=True),
+            python=resolve_program(args.python, "python"),
+            timeout=args.timeout,
+        )
+    except (
+        FileNotFoundError,
+        FileExistsError,
+        json.JSONDecodeError,
+        OSError,
+        RuntimeError,
+        subprocess.TimeoutExpired,
+        TypeError,
+        ValueError,
+    ) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result["regression_passed"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
