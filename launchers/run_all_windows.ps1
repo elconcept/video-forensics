@@ -163,6 +163,10 @@ foreach ($file in $files) {
         (Join-Path $out "matrix") `
         --output (Join-Path $out "${safeStem}_matrix.zip")
     if ($LASTEXITCODE -ne 0) { throw "matrix bundle failed for $($file.Name)" }
+
+
+    & video-forensics-result-summary $out
+    if ($LASTEXITCODE -ne 0) { throw "summary failed for $($file.Name)" }
 }
 
 Write-Host "Completed session: $sessionDir"

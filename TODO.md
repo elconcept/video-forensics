@@ -45,7 +45,7 @@ Lista obejmuje elementy, które pozostają do implementacji, integracji albo wal
 - [x] Obsłużyć pełny nagłówek pierwszego i zależnego segmentu slice.
 - [x] Poprawnie obsłużyć `slice_segment_address`.
 - [x] Parsować short-term reference picture sets z SPS i slice header.
-- [ ] Parsować long-term reference pictures.
+- [x] Parsować long-term reference pictures.
 - [ ] Wyprowadzać pełny graf zależności RPS dla każdego obrazu.
 - [ ] Identyfikować konkretną brakującą referencję dla każdego slice’a.
 - [ ] Obsłużyć zasady aktualizacji poprzedniego POC dla RASL, RADL i sub-layer non-reference.

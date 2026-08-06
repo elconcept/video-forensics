@@ -183,6 +183,8 @@ for INPUT in "${FILES[@]}"; do
 
   "$PYTHON" -m video_forensics.native.bundle_decoder_results \
     "$OUT/matrix" --output "$OUT/${SAFE_STEM}_matrix.zip"
+
+  video-forensics-result-summary "$OUT"
 done
 
 printf 'Completed session: %s\n' "$SESSION_DIR"

@@ -21,6 +21,7 @@ dev = [
 ]
 
 [project.scripts]
+video-forensics-result-summary = "video_forensics.native.result_summary:main"
 video-forensics-review-orphan-plan = "video_forensics.native.orphan_plan_review:main"
 video-forensics-submission-bundle = "video_forensics.native.submission_bundle:main"
 video-forensics-decoder-frame-timestamps = "video_forensics.native.decoder_frame_timestamps:main"
