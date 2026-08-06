@@ -7,6 +7,8 @@ EVIDENCE_DIR="${1:-work/evidence}"
 RESULTS_DIR="${2:-work/results}"
 PYTHON="${PYTHON:-python}"
 
+"$PYTHON" scripts/bootstrap_h265nal.py
+
 mkdir -p "$EVIDENCE_DIR" "$RESULTS_DIR"
 
 if [[ ! -d "$EVIDENCE_DIR" ]]; then

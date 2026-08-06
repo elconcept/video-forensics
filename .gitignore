@@ -8,3 +8,7 @@ evidence/
 results/
 *.egg-info/
 .DS_Store
+
+# h265nal generated checkout and build
+third_party/h265nal/
+build/h265nal/

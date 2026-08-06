@@ -7,6 +7,8 @@ EVIDENCE_DIR="${1:-work/evidence}"
 RESULTS_DIR="${2:-work/results}"
 PYTHON="${PYTHON:-python}"
 
+"$PYTHON" scripts/bootstrap_h265nal.py
+
 mkdir -p "$EVIDENCE_DIR" "$RESULTS_DIR"
 FILES=()
 while IFS= read -r -d '' FILE; do FILES+=("$FILE"); done < <(find "$EVIDENCE_DIR" -maxdepth 1 -type f \( \

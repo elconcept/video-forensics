@@ -7,6 +7,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+& $Python scripts\bootstrap_h265nal.py
+if ($LASTEXITCODE -ne 0) { throw "h265nal bootstrap failed" }
 
 & "$PSScriptRoot\bootstrap_windows.ps1"
 New-Item -ItemType Directory -Force -Path $EvidenceDir, $ResultsDir | Out-Null
