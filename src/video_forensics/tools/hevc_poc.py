@@ -85,6 +85,7 @@ class SPS:
     log2_max_poc_lsb: int
     separate_colour_plane_flag: int
     log2_ctb_size: int
+    long_term_ref_pics_present_flag: int = 0
 
 
 @dataclass(frozen=True)

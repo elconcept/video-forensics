@@ -1,0 +1,59 @@
+from __future__ import annotations
+
+import pytest
+
+from video_forensics.tools.hevc_long_term_rps import (
+    SpsLongTermReference,
+    parse_slice_long_term_references,
+    parse_sps_long_term_references,
+)
+from video_forensics.tools.hevc_poc import BitReader
+
+
+def bits(value: str) -> BitReader:
+    padded = value + "0" * ((8 - len(value) % 8) % 8)
+    return BitReader(
+        bytes(int(padded[index : index + 8], 2) for index in range(0, len(padded), 8))
+    )
+
+
+def test_parses_sps_long_term_references() -> None:
+    # present=1, count=2 ue(2)=011, POC 5 used, POC 200 unused
+    reader = bits("1" "011" "00000101" "1" "11001000" "0")
+    result = parse_sps_long_term_references(reader, log2_max_poc_lsb=8)
+    assert result["num_long_term_ref_pics_sps"] == 2
+    assert result["references"] == [
+        {"index": 0, "poc_lsb": 5, "used_by_curr_pic": 1},
+        {"index": 1, "poc_lsb": 200, "used_by_curr_pic": 0},
+    ]
+
+
+def test_parses_slice_sps_and_explicit_long_term_references() -> None:
+    refs = [
+        SpsLongTermReference(0, 5, 1),
+        SpsLongTermReference(1, 200, 0),
+    ]
+    # num_long_term_sps=1 ue(1)=010, num_long_term_pics=1 ue(1)=010
+    # lt_idx_sps=1, msb_present=1, cycle=2 ue(2)=011
+    # explicit POC=9, used=1, msb_present=1, cycle=3 ue(3)=00100
+    reader = bits("010" "010" "1" "1" "011" "00001001" "1" "1" "00100")
+    result = parse_slice_long_term_references(
+        reader, log2_max_poc_lsb=8, sps_references=refs
+    )
+    assert result["num_long_term_total"] == 2
+    assert result["references"][0]["source"] == "sps"
+    assert result["references"][0]["sps_index"] == 1
+    assert result["references"][0]["poc_lsb"] == 200
+    assert result["references"][1]["source"] == "slice"
+    assert result["references"][1]["poc_lsb"] == 9
+    assert result["references"][1]["cumulative_delta_poc_msb_cycle_lt"] == 3
+
+
+def test_rejects_invalid_sps_reference_count() -> None:
+    reader = bits("011" "1")
+    with pytest.raises(ValueError, match="exceeds"):
+        parse_slice_long_term_references(
+            reader,
+            log2_max_poc_lsb=8,
+            sps_references=[SpsLongTermReference(0, 5, 1)],
+        )

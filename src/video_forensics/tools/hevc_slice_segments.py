@@ -3,6 +3,10 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, replace
 from typing import Any
 
+from video_forensics.tools.hevc_long_term_rps import (
+    SpsLongTermReference,
+    parse_slice_long_term_references,
+)
 from video_forensics.tools.hevc_poc import IRAP_TYPES, PPS, SPS, BitReader, rbsp
 from video_forensics.tools.hevc_short_term_rps import (
     ShortTermRPS,
@@ -40,6 +44,7 @@ class SliceSegmentHeader:
     short_term_ref_pic_set_sps_flag: int | None
     short_term_ref_pic_set_idx: int | None
     short_term_rps: dict[str, object] | None
+    long_term_rps: dict[str, object] | None
     parser_status: str
 
 
@@ -52,6 +57,7 @@ def parse_slice_segment_header(
     sps_map: dict[int, SPS],
     preceding_independent: SliceSegmentHeader | None,
     sps_rps: dict[int, list[ShortTermRPS]] | None = None,
+    sps_long_term: dict[int, list[SpsLongTermReference]] | None = None,
 ) -> SliceSegmentHeader:
     reader = BitReader(rbsp(nal_payload[2:]))
     first = reader.bit()
@@ -124,6 +130,20 @@ def parse_slice_segment_header(
                 raise ValueError("short_term_ref_pic_set_idx outside SPS RPS list")
             short_term_rps = available[short_term_ref_pic_set_idx].to_dict()
 
+    long_term_rps = None
+    if nal_type not in {19, 20}:
+        available_long_term = (
+            [] if sps_long_term is None else sps_long_term.get(sps.sps_id, [])
+        )
+        if available_long_term or getattr(sps, "long_term_ref_pics_present_flag", 0):
+            parsed_long_term = parse_slice_long_term_references(
+                reader,
+                log2_max_poc_lsb=sps.log2_max_poc_lsb,
+                sps_references=available_long_term,
+            )
+            parsed_long_term.pop("parsed_references")
+            long_term_rps = parsed_long_term
+
     return SliceSegmentHeader(
         nal_number=nal_number,
         nal_unit_type=nal_type,
@@ -148,6 +168,7 @@ def parse_slice_segment_header(
         short_term_ref_pic_set_sps_flag=short_term_ref_pic_set_sps_flag,
         short_term_ref_pic_set_idx=short_term_ref_pic_set_idx,
         short_term_rps=short_term_rps,
+        long_term_rps=long_term_rps,
         parser_status="independent_header_core_complete",
     )
 
@@ -157,6 +178,7 @@ def parse_segment_sequence(
     pps_map: dict[int, PPS],
     sps_map: dict[int, SPS],
     sps_rps: dict[int, list[ShortTermRPS]] | None = None,
+    sps_long_term: dict[int, list[SpsLongTermReference]] | None = None,
 ) -> dict[str, object]:
     segments: list[SliceSegmentHeader] = []
     errors: list[dict[str, object]] = []
@@ -182,6 +204,7 @@ def parse_segment_sequence(
                 sps_map,
                 preceding_independent,
                 sps_rps,
+                sps_long_term,
             )
             if not header.dependent_slice_segment_flag:
                 preceding_independent = header

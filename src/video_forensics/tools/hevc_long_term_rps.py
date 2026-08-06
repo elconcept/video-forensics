@@ -1,0 +1,128 @@
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+
+from video_forensics.tools.hevc_poc import BitReader
+
+MAX_LONG_TERM_REFS = 32
+
+
+@dataclass(frozen=True)
+class SpsLongTermReference:
+    index: int
+    poc_lsb: int
+    used_by_curr_pic: int
+
+
+@dataclass(frozen=True)
+class LongTermReference:
+    index: int
+    source: str
+    sps_index: int | None
+    poc_lsb: int
+    used_by_curr_pic: int
+    delta_poc_msb_present_flag: int
+    delta_poc_msb_cycle_lt: int | None
+    cumulative_delta_poc_msb_cycle_lt: int | None
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+def ceil_log2(value: int) -> int:
+    if value <= 0:
+        raise ValueError("CeilLog2 input must be positive")
+    return (value - 1).bit_length()
+
+
+def parse_sps_long_term_references(
+    reader: BitReader,
+    *,
+    log2_max_poc_lsb: int,
+) -> dict[str, object]:
+    present = reader.bit()
+    references: list[SpsLongTermReference] = []
+    if present:
+        count = reader.ue()
+        if count > MAX_LONG_TERM_REFS:
+            raise ValueError(f"num_long_term_ref_pics_sps too large: {count}")
+        for index in range(count):
+            references.append(
+                SpsLongTermReference(
+                    index=index,
+                    poc_lsb=reader.bits(log2_max_poc_lsb),
+                    used_by_curr_pic=reader.bit(),
+                )
+            )
+    return {
+        "long_term_ref_pics_present_flag": present,
+        "num_long_term_ref_pics_sps": len(references),
+        "references": [asdict(item) for item in references],
+        "parsed_references": references,
+    }
+
+
+def parse_slice_long_term_references(
+    reader: BitReader,
+    *,
+    log2_max_poc_lsb: int,
+    sps_references: list[SpsLongTermReference],
+) -> dict[str, object]:
+    num_long_term_sps = reader.ue() if sps_references else 0
+    num_long_term_pics = reader.ue()
+    total = num_long_term_sps + num_long_term_pics
+    if num_long_term_sps > len(sps_references):
+        raise ValueError(
+            "num_long_term_sps exceeds num_long_term_ref_pics_sps: "
+            f"{num_long_term_sps} > {len(sps_references)}"
+        )
+    if total > MAX_LONG_TERM_REFS:
+        raise ValueError(f"slice long-term reference count too large: {total}")
+
+    index_bits = ceil_log2(len(sps_references)) if len(sps_references) > 1 else 0
+    references: list[LongTermReference] = []
+    cumulative = 0
+    for index in range(total):
+        if index < num_long_term_sps:
+            sps_index = reader.bits(index_bits) if index_bits else 0
+            if sps_index >= len(sps_references):
+                raise ValueError("lt_idx_sps outside SPS long-term reference list")
+            selected = sps_references[sps_index]
+            source = "sps"
+            poc_lsb = selected.poc_lsb
+            used = selected.used_by_curr_pic
+        else:
+            sps_index = None
+            source = "slice"
+            poc_lsb = reader.bits(log2_max_poc_lsb)
+            used = reader.bit()
+
+        msb_present = reader.bit()
+        cycle = reader.ue() if msb_present else None
+        if index == 0 or index == num_long_term_sps:
+            cumulative = 0
+        if cycle is not None:
+            cumulative += cycle
+            cumulative_value: int | None = cumulative
+        else:
+            cumulative_value = None
+        references.append(
+            LongTermReference(
+                index=index,
+                source=source,
+                sps_index=sps_index,
+                poc_lsb=poc_lsb,
+                used_by_curr_pic=used,
+                delta_poc_msb_present_flag=msb_present,
+                delta_poc_msb_cycle_lt=cycle,
+                cumulative_delta_poc_msb_cycle_lt=cumulative_value,
+            )
+        )
+
+    return {
+        "num_long_term_sps": num_long_term_sps,
+        "num_long_term_pics": num_long_term_pics,
+        "num_long_term_total": total,
+        "references": [item.to_dict() for item in references],
+        "parsed_references": references,
+    }

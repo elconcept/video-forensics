@@ -1,9 +1,20 @@
-# Step 57: complete base-layer HEVC SPS parser
+# Step 57: long-term reference pictures from SPS and slice headers
 
-This step replaces the early SPS parser with a complete base-layer parser through the end of the SPS RBSP.
+This step parses SPS-declared and slice-declared long-term references.
 
-It records profile-tier-level data, chroma format, dimensions, conformance window, bit depths, POC width, sub-layer ordering, coding and transform block geometry, scaling-list presence, AMP, SAO, PCM, all SPS short-term reference picture sets, long-term references, temporal MVP, strong intra smoothing, VUI timing/HRD restrictions, range extensions, and derived CTB geometry.
+It records:
 
-Multilayer, 3D, SCC, and unknown extension payloads are identified but retained as unparsed extension bits. They are not silently interpreted as base-layer syntax.
+- `long_term_ref_pics_present_flag`
+- `num_long_term_ref_pics_sps`
+- SPS POC-LSB values and used-by-current flags
+- `num_long_term_sps` and `num_long_term_pics`
+- `lt_idx_sps`
+- explicit `poc_lsb_lt`
+- used-by-current flags
+- `delta_poc_msb_present_flag`
+- raw and cumulative `delta_poc_msb_cycle_lt`
+- whether each reference came from SPS or the slice header
 
-FFmpeg's SPS structure explicitly includes ordering, scaling, short- and long-term reference sets, PCM, VUI, coding-block geometry and extension-related fields, which are now represented in the project output. citeturn108search81turn108search75turn108search76turn108search78
+Counts and indices are range-checked against the active SPS and the 32-entry HEVC reference limit. FFmpeg exposes SPS long-term POC-LSB arrays and a `LongTermRPS` structure with POC, MSB-presence, used flags, and reference count. citeturn107search322turn107search323turn107search326
+
+Output: `long_term_rps.json`, with the active long-term set embedded in each independent slice-segment record.

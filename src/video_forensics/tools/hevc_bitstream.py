@@ -6,6 +6,9 @@ from pathlib import Path
 from time import monotonic
 
 from video_forensics.manifest import atomic_write_json, utc_now
+from video_forensics.tools.hevc_long_term_rps import (
+    parse_sps_long_term_references,
+)
 from video_forensics.tools.hevc_poc import analyze_poc
 from video_forensics.tools.hevc_short_term_rps import parse_sps_short_term_rps
 from video_forensics.tools.hevc_slice_segments import parse_segment_sequence
@@ -116,8 +119,32 @@ def analyze(video: Path, output_dir: Path) -> dict[str, object]:
             sps_id = int(parsed["sps_id"])
             sps_rps_parsed[sps_id] = parsed.pop("parsed_sets")
             sps_rps_analysis[sps_id] = parsed
+    sps_long_term_parsed = {}
+    sps_long_term_analysis = {}
+    for sps_id, short_term in sps_rps_analysis.items():
+        reader_position = int(short_term["bits_consumed_through_rps"])
+        source_row = next(
+            row for row in rows
+            if int(row["nal_unit_type"]) == 33
+            and int(parse_sps_short_term_rps(bytes(row["payload"]))["sps_id"]) == sps_id
+        )
+        from video_forensics.tools.hevc_poc import BitReader, rbsp
+        reader = BitReader(rbsp(bytes(source_row["payload"])[2:]))
+        reader.position = reader_position
+        parsed_long_term = parse_sps_long_term_references(
+            reader,
+            log2_max_poc_lsb=sps_map[sps_id].log2_max_poc_lsb,
+        )
+        sps_long_term_parsed[sps_id] = parsed_long_term.pop("parsed_references")
+        sps_long_term_analysis[sps_id] = parsed_long_term
+        sps_map[sps_id] = __import__("dataclasses").replace(
+            sps_map[sps_id],
+            long_term_ref_pics_present_flag=int(
+                parsed_long_term["long_term_ref_pics_present_flag"]
+            ),
+        )
     segment_analysis = parse_segment_sequence(
-        rows, pps_map, sps_map, sps_rps_parsed
+        rows, pps_map, sps_map, sps_rps_parsed, sps_long_term_parsed
     )
     findings.extend(segment_analysis["findings"])
     counts = Counter(str(row["nal_unit_name"]) for row in rows)
@@ -129,6 +156,7 @@ def analyze(video: Path, output_dir: Path) -> dict[str, object]:
     atomic_write_json(target / "poc_analysis.json", poc_analysis)
     atomic_write_json(target / "slice_segments.json", segment_analysis)
     atomic_write_json(target / "short_term_rps.json", sps_rps_analysis)
+    atomic_write_json(target / "long_term_rps.json", sps_long_term_analysis)
     _write_csv(target / "slice_segments.csv", segment_analysis["segments"])
     if poc_analysis["orphan_plan_draft"] is not None:
         atomic_write_json(target / "orphan_plan_draft.json", poc_analysis["orphan_plan_draft"])
