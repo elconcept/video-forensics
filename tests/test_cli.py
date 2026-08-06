@@ -1,8 +1,24 @@
-from video_forensics.cli import build_parser
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from video_forensics.cli import build_parser, run_analysis
 
 
 def test_parser_accepts_analyze_command() -> None:
     args = build_parser().parse_args(["analyze", "input.mov", "--output", "out"])
     assert args.command == "analyze"
-    assert args.video == "input.mov"
-    assert args.output == "out"
+    assert args.video == Path("input.mov")
+    assert args.output == Path("out")
+
+
+def test_run_analysis_creates_completed_manifest(tmp_path: Path) -> None:
+    video = tmp_path / "input.mov"
+    output = tmp_path / "result"
+    video.write_bytes(b"content")
+
+    assert run_analysis(video, output, ["integrity"]) == 0
+    manifest = json.loads((output / "manifest.json").read_text())
+    assert manifest["run"]["status"] == "completed"
+    assert "integrity" in manifest["stages"]

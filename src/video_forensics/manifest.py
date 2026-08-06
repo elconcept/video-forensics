@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+import json
+import os
+import platform
+import sys
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+
+@dataclass(frozen=True)
+class InputIdentity:
+    path: str
+    size_bytes: int
+    mtime_ns: int
+    device: int
+    inode: int
+
+    @classmethod
+    def capture(cls, path: Path) -> InputIdentity:
+        stat = path.stat()
+        return cls(
+            path=str(path),
+            size_bytes=stat.st_size,
+            mtime_ns=stat.st_mtime_ns,
+            device=stat.st_dev,
+            inode=stat.st_ino,
+        )
+
+
+def utc_now() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def atomic_write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    with temporary.open("w", encoding="utf-8", newline="\n") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, path)
+
+
+def base_manifest(video: Path, argv: list[str], version: str) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "application": {"name": "video-forensics", "version": version},
+        "run": {
+            "started_at_utc": utc_now(),
+            "argv": argv,
+            "working_directory": str(Path.cwd()),
+        },
+        "runtime": {
+            "python": sys.version,
+            "platform": platform.platform(),
+        },
+        "input": asdict(InputIdentity.capture(video)),
+        "tools": {},
+        "stages": {},
+    }

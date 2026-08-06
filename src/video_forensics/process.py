@@ -1,0 +1,53 @@
+from __future__ import annotations
+
+import os
+import subprocess
+from collections.abc import Mapping, Sequence
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from time import monotonic
+
+
+@dataclass(frozen=True)
+class CommandResult:
+    argv: list[str]
+    returncode: int
+    stdout: str
+    stderr: str
+    duration_seconds: float
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+def run_command(
+    argv: Sequence[str],
+    *,
+    timeout: int = 3600,
+    cwd: Path | None = None,
+    env: Mapping[str, str] | None = None,
+) -> CommandResult:
+    if not argv:
+        raise ValueError("command cannot be empty")
+
+    executable = Path(argv[0])
+    if not executable.is_absolute():
+        raise ValueError(f"executable must use an absolute path: {argv[0]}")
+
+    started = monotonic()
+    completed = subprocess.run(
+        list(argv),
+        cwd=cwd,
+        env=dict(os.environ) | dict(env or {}),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+    return CommandResult(
+        argv=list(argv),
+        returncode=completed.returncode,
+        stdout=completed.stdout,
+        stderr=completed.stderr,
+        duration_seconds=round(monotonic() - started, 6),
+    )
