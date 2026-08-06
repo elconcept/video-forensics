@@ -82,6 +82,8 @@ def run_analysis(video: Path, output: Path, stages: list[str]) -> int:
             manifestation["stages"]["audio"] = audio.analyze(video, output)
         if "av_sync" in stages:
             manifestation["stages"]["av_sync"] = av_sync.analyze(video, output)
+        if "av_sync" in stages:
+            manifestation["stages"]["av_sync"] = av_sync.analyze(video, output)
         manifestation["run"]["status"] = "completed"
         manifestation["run"]["completed_at_utc"] = utc_now()
         return 0
