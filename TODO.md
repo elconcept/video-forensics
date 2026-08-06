@@ -62,7 +62,7 @@ Lista obejmuje elementy, które pozostają do implementacji, integracji albo wal
 - [x] Dodać uruchomienie niezależnego dekodera jednym poleceniem, bez ręcznego przygotowania drzewa wyników.
 - [ ] Weryfikować identyczny SHA-256 każdego kontrolowanego strumienia przed porównaniem dekoderów.
 - [ ] Weryfikować jednakową geometrię, przestrzeń kolorów i zakres wartości.
-- [ ] Zapisywać per-pixel medianę, odchylenie standardowe i maskę determinacji także w formacie numerycznym.
+- [x] Zapisywać per-pixel medianę, odchylenie standardowe i maskę determinacji także w formacie numerycznym.
 - [ ] Zapisywać udział pikseli zdeterminowanych osobno dla każdego kanału i dla całego piksela.
 - [ ] Dodać konfigurowalne kryterium determinacji z jawnym uzasadnieniem progu.
 - [ ] Dodać kontrolę wrażliwości wyniku na wybrany próg σ.

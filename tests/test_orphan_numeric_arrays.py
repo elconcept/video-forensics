@@ -1,0 +1,53 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import numpy as np
+from PIL import Image
+
+from video_forensics.native.orphan_numeric_arrays import export_numeric_arrays
+
+
+def write_frame(path: Path, value: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(np.full((2, 3, 3), value, dtype=np.uint8), "RGB").save(path)
+
+
+def test_writes_numeric_median_stddev_and_mask(tmp_path: Path) -> None:
+    root = tmp_path / "variants"
+    write_frame(root / "orphan_ref_nal_000001" / "frame_000000001.png", 10)
+    write_frame(root / "orphan_ref_nal_000002" / "frame_000000001.png", 14)
+    output = tmp_path / "numeric"
+    result = export_numeric_arrays(root, output, sigma_threshold=2.0)
+    median = np.load(output / "frame_000000001_median.npy", allow_pickle=False)
+    stddev = np.load(output / "frame_000000001_stddev.npy", allow_pickle=False)
+    channel_mask = np.load(
+        output / "frame_000000001_channel_determination_mask.npy",
+        allow_pickle=False,
+    )
+    mask = np.load(
+        output / "frame_000000001_determination_mask.npy", allow_pickle=False
+    )
+    assert median.dtype == np.float32
+    assert stddev.dtype == np.float32
+    assert channel_mask.dtype == np.uint8
+    assert mask.dtype == np.uint8
+    assert np.all(median == 12.0)
+    assert np.all(stddev == 2.0)
+    assert np.all(channel_mask == 1)
+    assert np.all(mask == 1)
+    archive = np.load(output / "frame_000000001.npz", allow_pickle=False)
+    assert set(archive.files) == {
+        "median",
+        "standard_deviation",
+        "channel_determination_mask",
+        "determination_mask",
+    }
+    manifest = json.loads((output / "manifest.json").read_text())
+    assert manifest["frame_count"] == 1
+    frame = result["frames"][0]
+    assert frame["determined_red_fraction"] == 1.0
+    assert frame["determined_green_fraction"] == 1.0
+    assert frame["determined_blue_fraction"] == 1.0
+    assert frame["determined_pixel_fraction"] == 1.0
