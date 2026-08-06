@@ -10,6 +10,10 @@ from pathlib import Path
 from typing import Any
 
 from video_forensics.native.libde265_run import find_dec265, run_decode
+from video_forensics.native.orphan_decoder_manifest import (
+    build_decoder_root_manifest,
+    build_variant_manifest,
+)
 from video_forensics.native.yuv_png_sequence import convert_sequence
 
 
@@ -105,9 +109,22 @@ def decode_variants(
                 raise RuntimeError(
                     "libde265 raw-frame count differs from generated PNG count"
                 )
+            compatible_manifest = build_variant_manifest(
+                variant_root,
+                decoder_id="libde265",
+                variant_id=variant_id,
+                reference_nal_number=reference_nal,
+                source_path=source,
+                source_sha256=actual,
+                host_profile_id=host_profile_id,
+            )
             record.update(
                 {
                     "status": "completed",
+                    "compatible_manifest": str(
+                        variant_root / "decoder_manifest.json"
+                    ),
+                    "compatible_frame_count": compatible_manifest["frame_count"],
                     "png_frame_count": len(pngs),
                     "frames": [
                         {
@@ -131,6 +148,12 @@ def decode_variants(
         results.append(record)
 
     completed = sum(item["status"] == "completed" for item in results)
+    compatible_root = build_decoder_root_manifest(
+        output,
+        results,
+        decoder_id="libde265",
+        host_profile_id=host_profile_id,
+    )
     aggregate: dict[str, object] = {
         "schema_version": 1,
         "module": "decode_orphan_libde265",
@@ -145,6 +168,8 @@ def decode_variants(
         "variant_count": len(results),
         "completed_variant_count": completed,
         "all_successful": completed == len(results),
+        "verify_orphan_decoders_manifest": str(output / "manifest.json"),
+        "compatible_root_status": compatible_root["status"],
         "variants": results,
     }
     (output / "decoder_manifest.json").write_text(

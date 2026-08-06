@@ -1,0 +1,62 @@
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+
+from video_forensics.native.orphan_decoder_manifest import (
+    build_decoder_root_manifest,
+    build_variant_manifest,
+)
+
+
+def test_builds_variant_and_root_manifests(tmp_path: Path) -> None:
+    output = tmp_path / "decoder_libde265"
+    variant_id = "orphan_ref_nal_000004"
+    variant = output / variant_id
+    frames = variant / "frames"
+    frames.mkdir(parents=True)
+    png = frames / "frame_000000001.png"
+    png.write_bytes(b"png")
+    digest = hashlib.sha256(b"png").hexdigest()
+    (frames / "yuv_png_sequence.json").write_text(
+        json.dumps(
+            {
+                "frames": [
+                    {
+                        "frame_number": 1,
+                        "filename": png.name,
+                        "png_sha256": digest,
+                        "source_frame_index": 0,
+                        "source_offset": 0,
+                        "source_frame_sha256": "raw",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    manifest = build_variant_manifest(
+        variant,
+        decoder_id="libde265",
+        variant_id=variant_id,
+        reference_nal_number=4,
+        source_path=tmp_path / "variant.h265",
+        source_sha256="source",
+        host_profile_id="host",
+    )
+    assert manifest["frame_count"] == 1
+    assert manifest["frames"][0]["frame_number"] == 1
+    root = build_decoder_root_manifest(
+        output,
+        [
+            {
+                "variant_id": variant_id,
+                "reference_nal_number": 4,
+            }
+        ],
+        decoder_id="libde265",
+        host_profile_id="host",
+    )
+    assert root["status"] == "completed"
+    assert root["variants"][0]["manifest"].endswith("decoder_manifest.json")
