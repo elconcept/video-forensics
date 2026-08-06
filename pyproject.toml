@@ -32,6 +32,7 @@ video-forensics-orphan-recovery-report = "video_forensics.native.orphan_recovery
 video-forensics-audio-samples = "video_forensics.native.audio_samples:main"
 video-forensics-run-matrix = "video_forensics.native.run_matrix:main"
 video-forensics-libde265-run = "video_forensics.native.libde265_run:main"
+video-forensics-orphan-pipeline = "video_forensics.native.orphan_pipeline:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
