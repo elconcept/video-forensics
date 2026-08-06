@@ -1,1 +1,210 @@
-"""Planned analytical module: report."""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from time import monotonic
+from typing import Any
+
+from video_forensics.manifest import atomic_write_json, utc_now
+
+STAGE_FILES = {
+    "integrity": "integrity/hashes.json",
+    "metadata": "metadata/metadata.json",
+    "container_structure": "container/structure.json",
+    "timeline": "timeline/timeline.json",
+    "gop": "gop/gop.json",
+    "frame_metrics": "frame_metrics/frame_metrics.json",
+    "continuity": "continuity/continuity.json",
+    "duplicates": "duplicates/duplicates.json",
+    "blending": "blending/blending.json",
+    "compression": "compression/compression.json",
+    "audio": "audio/audio.json",
+    "av_sync": "av_sync/av_sync.json",
+    "extract_frames": "extracted_frames/extract_frames.json",
+    "reference_compare": "reference_compare/reference_compare.json",
+}
+
+FINDING_FILES = {
+    "container_structure": "container/structure.json",
+    "timeline": "timeline/anomalies.json",
+    "gop": "gop/findings.json",
+    "frame_metrics": "frame_metrics/findings.json",
+    "continuity": "continuity/correlations.json",
+    "duplicates": "duplicates/findings.json",
+    "blending": "blending/findings.json",
+    "compression": "compression/findings.json",
+    "audio": "audio/findings.json",
+    "av_sync": "av_sync/findings.json",
+    "reference_compare": "reference_compare/differences.json",
+}
+
+
+def _read_json(path: Path) -> Any:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _load_stage_results(output_dir: Path) -> tuple[dict[str, Any], list[str]]:
+    results: dict[str, Any] = {}
+    missing: list[str] = []
+    for stage, relative_path in STAGE_FILES.items():
+        path = output_dir / relative_path
+        if path.is_file():
+            results[stage] = _read_json(path)
+        else:
+            missing.append(stage)
+    return results, missing
+
+
+def _finding_count(stage: str, payload: Any) -> int:
+    if stage == "container_structure" and isinstance(payload, dict):
+        anomalies = payload.get("anomalies", [])
+        return len(anomalies) if isinstance(anomalies, list) else 0
+    return len(payload) if isinstance(payload, list) else 0
+
+
+def _load_finding_counts(output_dir: Path) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for stage, relative_path in FINDING_FILES.items():
+        path = output_dir / relative_path
+        if path.is_file():
+            counts[stage] = _finding_count(stage, _read_json(path))
+    return counts
+
+
+def _input_identity(manifest: dict[str, Any]) -> list[str]:
+    input_data = manifest.get("input", {})
+    lines = ["## Input"]
+    for label, key in (
+        ("Path", "path"),
+        ("Size bytes", "size_bytes"),
+        ("Modified time ns", "mtime_ns"),
+        ("Device", "device"),
+        ("Inode", "inode"),
+    ):
+        lines.append(f"- {label}: `{input_data.get(key, 'not recorded')}`")
+    return lines
+
+
+def _integrity(stage_results: dict[str, Any]) -> list[str]:
+    result = stage_results.get("integrity", {})
+    hashes = result.get("hashes", {}) if isinstance(result, dict) else {}
+    return [
+        "## Integrity",
+        f"- SHA-256: `{hashes.get('sha256', 'not available')}`",
+        f"- SHA-512: `{hashes.get('sha512', 'not available')}`",
+        ("- Input unchanged during hashing: "
+        f"`{result.get('input_unchanged_during_read', 'not available')}`"),
+    ]
+
+
+def _stage_table(
+    stage_results: dict[str, Any],
+    missing: list[str],
+    finding_counts: dict[str, int],
+) -> list[str]:
+    lines = [
+        "## Stage status",
+        "| Stage | Status | Recorded observations |",
+        "|---|---:|---:|",
+    ]
+    for stage in STAGE_FILES:
+        status = "completed" if stage in stage_results else "not run"
+        count = finding_counts.get(stage, 0)
+        lines.append(f"| {stage} | {status} | {count} |")
+    if missing:
+        lines.extend(
+            [
+                "",
+                "Stages marked `not run` were not represented by their expected output file.",
+            ]
+        )
+    return lines
+
+
+def _observations(finding_counts: dict[str, int]) -> list[str]:
+    lines = ["## Recorded observations"]
+    nonzero = [(stage, count) for stage, count in finding_counts.items() if count > 0]
+    if not nonzero:
+        lines.append("No observation records were present in the expected finding files.")
+        return lines
+    for stage, count in sorted(nonzero):
+        lines.append(f"- `{stage}`: {count} observation record(s).")
+    return lines
+
+
+def _limitations() -> list[str]:
+    return [
+        "## Interpretation boundary",
+        "This report inventories outputs produced by the pipeline.",
+        "Observation counts are not a verdict that the recording was modified.",
+        "Technical interpretation requires review of the underlying JSON and CSV outputs,",
+        "the claimed provenance, and suitable reference material.",
+    ]
+
+
+def _render_markdown(
+    manifest: dict[str, Any],
+    stage_results: dict[str, Any],
+    missing: list[str],
+    finding_counts: dict[str, int],
+) -> str:
+    run = manifest.get("run", {})
+    application = manifest.get("application", {})
+    lines = [
+        "# Video forensic analysis report",
+        "",
+        f"- Application: `{application.get('name', 'video-forensics')}`",
+        f"- Version: `{application.get('version', 'not recorded')}`",
+        f"- Run status: `{run.get('status', 'not recorded')}`",
+        f"- Started UTC: `{run.get('started_at_utc', 'not recorded')}`",
+        f"- Completed UTC: `{run.get('completed_at_utc', 'not recorded')}`",
+        "",
+        *_input_identity(manifest),
+        "",
+        *_integrity(stage_results),
+        "",
+        *_stage_table(stage_results, missing, finding_counts),
+        "",
+        *_observations(finding_counts),
+        "",
+        *_limitations(),
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def analyze(video: Path, output_dir: Path) -> dict[str, object]:
+    video = video.resolve(strict=True)
+    if not video.is_file():
+        raise ValueError(f"input is not a regular file: {video}")
+
+    manifest_path = output_dir / "manifest.json"
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"required manifest not found: {manifest_path}")
+
+    started = monotonic()
+    manifest = _read_json(manifest_path)
+    if not isinstance(manifest, dict):
+        raise TypeError(f"expected a JSON object: {manifest_path}")
+
+    stage_results, missing = _load_stage_results(output_dir)
+    finding_counts = _load_finding_counts(output_dir)
+    markdown = _render_markdown(manifest, stage_results, missing, finding_counts)
+    report_path = output_dir / "report.md"
+    report_path.write_text(markdown, encoding="utf-8", newline="\n")
+
+    result: dict[str, object] = {
+        "schema_version": 1,
+        "stage": "report",
+        "completed_at_utc": utc_now(),
+        "duration_seconds": round(monotonic() - started, 6),
+        "summary": {
+            "represented_stage_count": len(stage_results),
+            "missing_stage_count": len(missing),
+            "missing_stages": missing,
+            "finding_counts": finding_counts,
+        },
+        "outputs": {"markdown": "report.md"},
+    }
+    atomic_write_json(output_dir / "report.json", result)
+    return result
