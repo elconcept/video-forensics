@@ -21,6 +21,7 @@ dev = [
 
 [project.scripts]
 video-forensics = "video_forensics.cli:main"
+video-forensics-host-profile = "video_forensics.native.host_profile:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,168 @@
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import platform
+import shutil
+import socket
+import subprocess
+import sys
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+TOOLS = ("ffmpeg", "ffprobe", "exiftool", "mediainfo", "mp4dump", "MP4Box", "de265dec")
+
+
+def run(argv: list[str], timeout: int = 60) -> dict[str, object]:
+    try:
+        completed = subprocess.run(
+            argv,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"argv": argv, "available": False, "error": str(exc)}
+    return {
+        "argv": argv,
+        "available": True,
+        "returncode": completed.returncode,
+        "stdout": completed.stdout,
+        "stderr": completed.stderr,
+    }
+
+
+def executable_inventory() -> dict[str, object]:
+    inventory: dict[str, object] = {}
+    for name in TOOLS:
+        located = shutil.which(name)
+        inventory[name] = {
+            "available": located is not None,
+            "path": str(Path(located).resolve()) if located else None,
+        }
+    return inventory
+
+
+def ffmpeg_profile(path: str | None) -> dict[str, object]:
+    if path is None:
+        return {"available": False}
+    return {
+        "available": True,
+        "version": run([path, "-version"]),
+        "build_configuration": run([path, "-buildconf"]),
+        "hwaccels": run([path, "-hide_banner", "-hwaccels"]),
+        "decoders": run([path, "-hide_banner", "-decoders"]),
+    }
+
+
+def gpu_inventory(system: str) -> dict[str, object]:
+    if system == "Windows":
+        return {
+            "windows_cim": run([
+                "powershell.exe",
+                "-NoProfile",
+                "-Command",
+                "Get-CimInstance Win32_VideoController | Select-Object Name,PNPDeviceID,DriverVersion,AdapterRAM | ConvertTo-Json -Depth 3",
+            ])
+        }
+    if system == "Darwin":
+        return {"system_profiler": run(["system_profiler", "SPDisplaysDataType", "-json"])}
+    return {
+        "lspci": run(["lspci", "-nnk"]),
+        "nvidia_smi": run([
+            "nvidia-smi",
+            "--query-gpu=name,uuid,driver_version,pci.bus_id",
+            "--format=csv,noheader",
+        ]),
+        "vainfo": run(["vainfo"]),
+    }
+
+
+def cpu_inventory(system: str) -> dict[str, object]:
+    if system == "Windows":
+        return {
+            "windows_cim": run([
+                "powershell.exe",
+                "-NoProfile",
+                "-Command",
+                "Get-CimInstance Win32_Processor | Select-Object Name,Manufacturer,NumberOfCores,NumberOfLogicalProcessors | ConvertTo-Json -Depth 3",
+            ])
+        }
+    if system == "Darwin":
+        return {"system_profiler": run(["system_profiler", "SPHardwareDataType", "-json"])}
+    return {"lscpu": run(["lscpu", "--json"])}
+
+
+def stable_profile_id(profile: dict[str, Any]) -> str:
+    identity = {
+        "hostname": profile["host"]["hostname"],
+        "system": profile["host"]["system"],
+        "machine": profile["host"]["machine"],
+        "node": profile["host"]["node"],
+    }
+    encoded = json.dumps(identity, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()[:16]
+
+
+def collect() -> dict[str, object]:
+    system = platform.system()
+    tools = executable_inventory()
+    profile: dict[str, Any] = {
+        "schema_version": 1,
+        "captured_at_utc": datetime.now(UTC).isoformat(),
+        "host": {
+            "hostname": socket.gethostname(),
+            "node": platform.node(),
+            "system": system,
+            "release": platform.release(),
+            "version": platform.version(),
+            "machine": platform.machine(),
+            "platform": platform.platform(),
+            "python": sys.version,
+            "python_executable": sys.executable,
+            "environment_architecture": platform.architecture(),
+        },
+        "cpu": cpu_inventory(system),
+        "gpu": gpu_inventory(system),
+        "tools": tools,
+        "ffmpeg": ffmpeg_profile(tools["ffmpeg"]["path"]),
+        "environment": {
+            "PATH": os.environ.get("PATH"),
+        },
+    }
+    profile["host_profile_id"] = stable_profile_id(profile)
+    return profile
+
+
+def write_profile(output: Path) -> dict[str, object]:
+    profile = collect()
+    output = output.expanduser().resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if output.exists():
+        raise FileExistsError(f"host profile already exists: {output}")
+    output.write_text(
+        json.dumps(profile, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return profile
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="video-forensics-host-profile")
+    parser.add_argument("--output", required=True, type=Path)
+    args = parser.parse_args()
+    try:
+        profile = write_profile(args.output)
+    except (FileExistsError, OSError, TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps({"host_profile_id": profile["host_profile_id"]}, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
