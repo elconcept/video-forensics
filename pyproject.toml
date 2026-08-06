@@ -21,6 +21,7 @@ dev = [
 ]
 
 [project.scripts]
+video-forensics-submission-bundle = "video_forensics.native.submission_bundle:main"
 video-forensics-decoder-frame-timestamps = "video_forensics.native.decoder_frame_timestamps:main"
 video-forensics-osd-timeline = "video_forensics.native.osd_timeline:main"
 video-forensics = "video_forensics.cli:main"

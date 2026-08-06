@@ -1,0 +1,185 @@
+from __future__ import annotations
+
+import argparse
+import csv
+import hashlib
+import json
+import sys
+import zipfile
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(8 * 1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def read_json(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise TypeError(f"expected JSON object: {path}")
+    return payload
+
+
+def read_index(path: Path) -> list[dict[str, str]]:
+    if not path.is_file():
+        raise FileNotFoundError(f"frame index not found: {path}")
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def validate_index(directory: Path, rows: list[dict[str, str]], suffix: str) -> None:
+    indexed = {row["filename"] for row in rows if row["filename"].endswith(suffix)}
+    actual = {path.name for path in directory.glob(f"*{suffix}")}
+    if indexed != actual:
+        raise ValueError(
+            f"frame inventory mismatch in {directory}; "
+            f"missing={sorted(indexed - actual)} unexpected={sorted(actual - indexed)}"
+        )
+    for row in rows:
+        filename = row["filename"]
+        if not filename.endswith(suffix):
+            continue
+        path = directory / filename
+        if int(row["size_bytes"]) != path.stat().st_size:
+            raise ValueError(f"frame size mismatch: {path}")
+        if row["sha256"].lower() != sha256(path):
+            raise ValueError(f"frame SHA-256 mismatch: {path}")
+
+
+def decoder_runs(root: Path) -> list[str]:
+    email_root = root / "email"
+    lossless_root = root / "lossless"
+    email_runs = {path.name for path in email_root.iterdir() if path.is_dir()}
+    lossless_runs = {path.name for path in lossless_root.iterdir() if path.is_dir()}
+    if email_runs != lossless_runs:
+        raise ValueError(
+            "email and lossless decoder run sets differ; "
+            f"email_only={sorted(email_runs - lossless_runs)} "
+            f"lossless_only={sorted(lossless_runs - email_runs)}"
+        )
+    if not email_runs:
+        raise ValueError("no decoder frame exports found")
+    return sorted(email_runs)
+
+
+def build_bundle(visual_root: Path, output_zip: Path) -> dict[str, object]:
+    visual_root = visual_root.expanduser().resolve(strict=True)
+    export_manifest = read_json(visual_root / "visual_frame_export.json")
+    runs = decoder_runs(visual_root)
+    output_zip = output_zip.expanduser().resolve()
+    output_zip.parent.mkdir(parents=True, exist_ok=True)
+    if output_zip.exists():
+        raise FileExistsError(f"submission bundle already exists: {output_zip}")
+
+    run_records: list[dict[str, object]] = []
+    email_files: list[Path] = []
+    for run_id in runs:
+        email_dir = visual_root / "email" / run_id
+        lossless_dir = visual_root / "lossless" / run_id
+        email_index = read_index(email_dir / "index.csv")
+        lossless_index = read_index(lossless_dir / "index.csv")
+        validate_index(email_dir, email_index, ".jpg")
+        validate_index(lossless_dir, lossless_index, ".png")
+        email_frames = sorted(email_dir.glob("*.jpg"))
+        email_files.extend(email_frames)
+        run_records.append(
+            {
+                "run_id": run_id,
+                "email_frame_count": len(email_frames),
+                "lossless_frame_count_retained": sum(
+                    row["filename"].endswith(".png") for row in lossless_index
+                ),
+                "email_index_sha256": sha256(email_dir / "index.csv"),
+                "lossless_index_sha256": sha256(lossless_dir / "index.csv"),
+                "lossless_directory_retained": str(lossless_dir),
+            }
+        )
+
+    notice = (
+        "Kopie skompresowane przeznaczone do przeglądu i przesłania pocztą elektroniczną.\n"
+        "Bezstratne pochodne PNG zachowano wraz z indeksami SHA-256 i mogą zostać "
+        "przekazane na żądanie.\n"
+        "Plik źródłowy pozostaje materiałem podstawowym. Kopie JPEG nie zastępują "
+        "pliku źródłowego ani pochodnych bezstratnych.\n"
+    )
+    manifest: dict[str, object] = {
+        "schema_version": 1,
+        "module": "submission_bundle",
+        "created_at_utc": datetime.now(UTC).isoformat(),
+        "input": export_manifest.get("input"),
+        "host_profile_id": export_manifest.get("host_profile_id"),
+        "policy": {
+            "included": "compressed JPEG review derivatives",
+            "not_included": "lossless PNG derivatives",
+            "lossless_status": "retained and indexed for delivery on request",
+        },
+        "decoder_run_count": len(run_records),
+        "email_frame_count": len(email_files),
+        "runs": run_records,
+    }
+
+    with zipfile.ZipFile(output_zip, "x", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("README.txt", notice)
+        archive.writestr(
+            "submission_manifest.json",
+            json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        )
+        for run_id in runs:
+            email_dir = visual_root / "email" / run_id
+            archive.write(email_dir / "index.csv", f"frames/{run_id}/index.csv")
+            stderr = email_dir / "stderr.txt"
+            if stderr.is_file():
+                archive.write(stderr, f"frames/{run_id}/stderr.txt")
+            for frame in sorted(email_dir.glob("*.jpg")):
+                archive.write(frame, f"frames/{run_id}/{frame.name}")
+
+    bundle_hash = sha256(output_zip)
+    checksum_path = output_zip.with_suffix(output_zip.suffix + ".sha256")
+    checksum_path.write_text(f"{bundle_hash}  {output_zip.name}\n", encoding="ascii")
+    result = {
+        **manifest,
+        "bundle": str(output_zip),
+        "bundle_sha256": bundle_hash,
+        "checksum_file": str(checksum_path),
+    }
+    return result
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="video-forensics-submission-bundle")
+    parser.add_argument("visual_root", type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    args = parser.parse_args()
+    try:
+        result = build_bundle(args.visual_root, args.output)
+    except (
+        FileNotFoundError,
+        FileExistsError,
+        KeyError,
+        TypeError,
+        ValueError,
+        zipfile.BadZipFile,
+    ) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    print(
+        json.dumps(
+            {
+                "decoder_run_count": result["decoder_run_count"],
+                "email_frame_count": result["email_frame_count"],
+                "bundle_sha256": result["bundle_sha256"],
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

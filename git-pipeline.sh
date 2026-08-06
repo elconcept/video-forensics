@@ -1,4 +1,4 @@
-ruff check . --fix  --unsafe-fixes
+ruff check . --fix --unsafe-fixes
 pytest
 git diff --check
 git add .
