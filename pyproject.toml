@@ -26,6 +26,7 @@ video-forensics-host-profile = "video_forensics.native.host_profile:main"
 video-forensics-orphan-recovery = "video_forensics.native.orphan_recovery:main"
 video-forensics-build-orphan-streams = "video_forensics.native.orphan_stream_builder:main"
 video-forensics-export-visual-frames = "video_forensics.native.visual_frame_export:main"
+video-forensics-decode-orphan-variants = "video_forensics.native.decode_orphan_variants:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

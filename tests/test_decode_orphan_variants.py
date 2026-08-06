@@ -1,0 +1,16 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from video_forensics.native.decode_orphan_variants import image_inventory
+
+
+def test_image_inventory_ignores_logs_and_orders_frames(tmp_path: Path) -> None:
+    (tmp_path / "frame_0001.png").write_bytes(b"one")
+    (tmp_path / "frame_0000.png").write_bytes(b"zero")
+    (tmp_path / "stderr.txt").write_text("log", encoding="utf-8")
+
+    rows = image_inventory(tmp_path)
+
+    assert [row["filename"] for row in rows] == ["frame_0000.png", "frame_0001.png"]
+    assert [row["frame_number"] for row in rows] == [1, 2]

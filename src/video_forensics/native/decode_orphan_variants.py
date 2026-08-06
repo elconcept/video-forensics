@@ -1,0 +1,207 @@
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import shutil
+import subprocess
+import sys
+from datetime import UTC, datetime
+from pathlib import Path
+from time import monotonic
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(8 * 1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def find_binary(explicit: str | None) -> Path:
+    candidate = explicit or shutil.which("ffmpeg")
+    if not candidate:
+        raise FileNotFoundError("cannot find ffmpeg; pass --ffmpeg")
+    return Path(candidate).expanduser().resolve(strict=True)
+
+
+def run(argv: list[str], timeout: int) -> dict[str, object]:
+    started = monotonic()
+    completed = subprocess.run(
+        argv,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+    return {
+        "argv": argv,
+        "returncode": completed.returncode,
+        "stdout": completed.stdout,
+        "stderr": completed.stderr,
+        "duration_seconds": round(monotonic() - started, 6),
+    }
+
+
+def image_inventory(directory: Path) -> list[dict[str, object]]:
+    return [
+        {
+            "frame_number": number,
+            "filename": path.name,
+            "size_bytes": path.stat().st_size,
+            "sha256": sha256(path),
+        }
+        for number, path in enumerate(sorted(directory.glob("frame_*.png")), start=1)
+    ]
+
+
+def decode_variant(
+    stream: Path,
+    output: Path,
+    ffmpeg: Path,
+    decoder_args: list[str],
+    timeout: int,
+) -> dict[str, object]:
+    output.mkdir(parents=True, exist_ok=False)
+    argv = [
+        str(ffmpeg),
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel",
+        "repeat+level+verbose",
+        "-err_detect",
+        "ignore_err",
+        *decoder_args,
+        "-i",
+        str(stream),
+        "-map",
+        "0:v:0",
+        "-vsync",
+        "0",
+        "-start_number",
+        "0",
+        "-c:v",
+        "png",
+        "-compression_level",
+        "6",
+        "-f",
+        "image2",
+        str(output / "frame_%04d.png"),
+    ]
+    result = run(argv, timeout)
+    (output / "stdout.txt").write_text(str(result["stdout"]), encoding="utf-8")
+    (output / "stderr.txt").write_text(str(result["stderr"]), encoding="utf-8")
+    frames = image_inventory(output)
+    return {
+        "stream": str(stream),
+        "stream_sha256": sha256(stream),
+        "command": argv,
+        "returncode": result["returncode"],
+        "duration_seconds": result["duration_seconds"],
+        "frame_count": len(frames),
+        "frames": frames,
+    }
+
+
+def decode_all(
+    streams_root: Path,
+    output: Path,
+    ffmpeg: Path,
+    *,
+    decoder_id: str,
+    decoder_args: list[str],
+    timeout: int,
+) -> dict[str, object]:
+    streams_root = streams_root.expanduser().resolve(strict=True)
+    streams = sorted(streams_root.glob("orphan_ref_nal_*.h265"))
+    if not streams:
+        raise ValueError(f"no orphan variant streams found: {streams_root}")
+    output = output.expanduser().resolve()
+    output.mkdir(parents=True, exist_ok=False)
+
+    variants: list[dict[str, object]] = []
+    for stream in streams:
+        variant_id = stream.stem
+        variants.append(
+            {
+                "variant_id": variant_id,
+                **decode_variant(
+                    stream,
+                    output / variant_id,
+                    ffmpeg,
+                    decoder_args,
+                    timeout,
+                ),
+            }
+        )
+
+    result: dict[str, object] = {
+        "schema_version": 1,
+        "module": "decode_orphan_variants",
+        "created_at_utc": datetime.now(UTC).isoformat(),
+        "decoder_id": decoder_id,
+        "decoder_args": decoder_args,
+        "ffmpeg": str(ffmpeg),
+        "streams_manifest": str(streams_root / "orphan_streams.json"),
+        "variant_count": len(variants),
+        "all_successful": all(int(item["returncode"]) == 0 for item in variants),
+        "all_logs_free_of_missing_reference": all(
+            "Could not find ref" not in (output / str(item["variant_id"]) / "stderr.txt").read_text(
+                encoding="utf-8", errors="replace"
+            )
+            for item in variants
+        ),
+        "variants": variants,
+    }
+    (output / "decode_orphan_variants.json").write_text(
+        json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return result
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="video-forensics-decode-orphan-variants")
+    parser.add_argument("streams_root", type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--decoder-id", default="libavcodec")
+    parser.add_argument("--decoder-arg", action="append", default=[])
+    parser.add_argument("--ffmpeg")
+    parser.add_argument("--timeout", type=int, default=3600)
+    args = parser.parse_args()
+    try:
+        result = decode_all(
+            args.streams_root,
+            args.output,
+            find_binary(args.ffmpeg),
+            decoder_id=args.decoder_id,
+            decoder_args=args.decoder_arg,
+            timeout=args.timeout,
+        )
+    except (
+        FileNotFoundError,
+        FileExistsError,
+        subprocess.TimeoutExpired,
+        TypeError,
+        ValueError,
+    ) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    print(
+        json.dumps(
+            {
+                "variant_count": result["variant_count"],
+                "all_successful": result["all_successful"],
+                "all_logs_free_of_missing_reference": result[
+                    "all_logs_free_of_missing_reference"
+                ],
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
