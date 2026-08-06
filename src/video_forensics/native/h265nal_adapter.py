@@ -154,7 +154,11 @@ def run(
 ) -> dict[str, Any]:
     annex_b = annex_b.expanduser().resolve(strict=True)
     output = output.expanduser().resolve()
-    output.mkdir(parents=True, exist_ok=False)
+    if output.exists():
+        if not output.is_dir() or any(output.iterdir()):
+            raise FileExistsError(f"output already exists and is not empty: {output}")
+    else:
+        output.mkdir(parents=True, exist_ok=False)
     argv = command(binary, annex_b)
     completed = subprocess.run(
         argv,
