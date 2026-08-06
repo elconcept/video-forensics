@@ -37,7 +37,8 @@ video-forensics-playback-divergence = "video_forensics.native.playback_divergenc
 video-forensics-static-region-motion = "video_forensics.native.static_region_motion:main"
 video-forensics-osd-reader = "video_forensics.native.osd_reader:main"
 video-forensics-osd-glyph-metrics = "video_forensics.native.osd_glyph_metrics:main"
-
+video-forensics-decoder-matrix-report = "video_forensics.native.decoder_matrix_report:main"
+video-forensics-static-region-series = "video_forensics.native.static_region_series:main"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
