@@ -1,0 +1,14 @@
+services:
+  forensic:
+    build:
+      context: .
+    image: video-forensics:local
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /tmp:size=2g
+    volumes:
+      - ${EVIDENCE_DIR:-./evidence}:/evidence:ro
+      - ${RESULTS_DIR:-./results}:/results:rw
+    security_opt:
+      - no-new-privileges:true

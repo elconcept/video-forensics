@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "video-forensics"
+version = "0.1.0"
+description = "Containerized forensic video examination toolkit"
+requires-python = ">=3.12"
+dependencies = [
+  "numpy>=2.0,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<9",
+  "ruff>=0.12,<1",
+  "mypy>=1.17,<2",
+]
+
+[project.scripts]
+video-forensics = "video_forensics.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
