@@ -49,4 +49,9 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e '.[dev]'
 
+if [[ ! -x .local/h265nal/h265nal ]]; then
+  log "Budowanie przypiętej wersji h265nal"
+  python scripts/build_h265nal.py
+fi
+
 log "Bootstrap macOS zakończony"

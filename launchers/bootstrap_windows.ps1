@@ -111,4 +111,13 @@ if (-not (Test-Path -LiteralPath ".venv")) {
 & .\.venv\Scripts\python.exe -m pip install --upgrade pip
 & .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 
+$h265nalBinary = ".local\h265nal\h265nal.exe"
+if (-not (Test-Path -LiteralPath $h265nalBinary)) {
+    Write-Bootstrap "Budowanie przypiętej wersji h265nal"
+    & .\.venv\Scripts\python.exe scripts\build_h265nal.py
+    if ($LASTEXITCODE -ne 0) {
+        throw "Nie udało się zbudować h265nal."
+    }
+}
+
 Write-Bootstrap "Bootstrap Windows zakończony"

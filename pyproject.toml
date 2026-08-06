@@ -21,6 +21,7 @@ dev = [
 ]
 
 [project.scripts]
+video-forensics-hevc-syntax = "video_forensics.native.h265nal_pipeline:main"
 video-forensics-h265nal = "video_forensics.native.h265nal_adapter:main"
 video-forensics-orphan-numeric-arrays = "video_forensics.native.orphan_numeric_arrays:main"
 video-forensics-cross-run-compare = "video_forensics.native.cross_run_compare:main"

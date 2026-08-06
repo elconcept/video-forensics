@@ -1,18 +1,7 @@
-# Step 61: `verify_orphan_decoders`-compatible libde265 manifests
+# Step 61: executable h265nal workflow and automatic bootstrap
 
-This step adds a canonical decoder-root manifest and one canonical manifest per controlled libde265 variant.
+Step 60 still did not satisfy the migration DoD. Step 61 adds one end-to-end command that accepts Annex B, discovers or builds h265nal, preserves the raw parser output, executes the primary syntax derivation, optionally compares legacy POC, and writes one workflow manifest.
 
-For each variant it writes:
+All OS bootstraps now build the pinned h265nal binary when absent. A process-level integration test exercises the complete adapter and primary backend through an executable CLI fixture.
 
-- `decoder_manifest.json`
-- `frames.csv`
-- decoder and variant identifiers
-- reference NAL number
-- verified controlled-stream SHA-256
-- frame directory
-- contiguous decoder-output frame numbers
-- PNG path, size, SHA-256
-- source raw-frame index, offset, and SHA-256
-- explicit ordering policy
-
-At the decoder root it writes `manifest.json` with all variant identifiers, statuses, frame counts, frame directories, and per-variant manifest paths. The aggregate libde265 result points to this root manifest so `verify_orphan_decoders` can consume libde265 through the same decoder-root interface as the controlled libavcodec output.
+The upstream project documents Annex B parsing, stateful parameter-set handling, slice parsing, offsets, lengths, tests, fuzzing and Windows support. citeturn113search131turn112search129

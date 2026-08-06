@@ -1,0 +1,48 @@
+from pathlib import Path
+
+path = Path("src/video_forensics/native/h265nal_adapter.py")
+text = path.read_text(encoding="utf-8")
+old = '''    return {
+        "nal_number": number,
+        "offset": payload.get("offset"),
+        "length": payload.get("length"),
+        "header": header,
+        "payload": payload.get("nal_unit_payload", {}),
+        "raw": payload,
+    }
+'''
+new = '''    parsed_payload = payload.get("nal_unit_payload")
+    if not isinstance(parsed_payload, dict):
+        parsed_payload = {}
+    for syntax_name in ("vps", "sps", "pps", "aud", "sei"):
+        syntax = payload.get(syntax_name)
+        if isinstance(syntax, dict) and syntax_name not in parsed_payload:
+            parsed_payload[syntax_name] = syntax
+    return {
+        "nal_number": number,
+        "offset": payload.get("offset"),
+        "length": payload.get("length"),
+        "header": header,
+        "payload": parsed_payload,
+        "raw": payload,
+    }
+'''
+if new not in text:
+    if old not in text:
+        raise SystemExit("Cannot find normalize_nal return block")
+    text = text.replace(old, new, 1)
+
+old_candidates = 'candidates = [explicit] if explicit else ["h265nal", "tools/h265nal"]'
+new_candidates = '''candidates = (
+        [explicit]
+        if explicit
+        else [
+            ".local/h265nal/h265nal",
+            ".local/h265nal/h265nal.exe",
+            "h265nal",
+            "tools/h265nal",
+        ]
+    )'''
+if old_candidates in text:
+    text = text.replace(old_candidates, new_candidates, 1)
+path.write_text(text, encoding="utf-8")
