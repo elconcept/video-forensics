@@ -14,7 +14,7 @@ if ! has brew; then
   fi
 fi
 
-required_formulae=(python@3.12 ffmpeg)
+required_formulae=(python@3.12 ffmpeg git cmake)
 optional_formulae=(mediainfo exiftool tesseract gpac libde265)
 
 for formula in "${required_formulae[@]}"; do

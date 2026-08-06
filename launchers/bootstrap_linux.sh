@@ -4,12 +4,16 @@ set -euo pipefail
 log() { printf '[bootstrap] %s\n' "$*"; }
 has() { command -v "$1" >/dev/null 2>&1; }
 
-REQUIRED_PACKAGES=(python3 python3-venv python3-pip ffmpeg)
+REQUIRED_PACKAGES=(python3 python3-venv python3-pip ffmpeg git cmake g++ make)
 OPTIONAL_PACKAGES=(mediainfo libimage-exiftool-perl tesseract-ocr gpac libde265-examples pciutils vainfo)
 
 missing_required=()
 has python3 || missing_required+=(python3 python3-venv python3-pip)
 has ffmpeg || missing_required+=(ffmpeg)
+has git || missing_required+=(git)
+has cmake || missing_required+=(cmake)
+has g++ || missing_required+=(g++)
+has make || missing_required+=(make)
 
 missing_optional=()
 has mediainfo || missing_optional+=(mediainfo)

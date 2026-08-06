@@ -1,6 +1,19 @@
 # TODO projektu `video-forensics`
 
-Lista obejmuje elementy, które pozostają do implementacji, integracji albo walidacji po Step 53. Nie obejmuje funkcji już ukończonych, chyba że wymagają domknięcia.
+## INTERVENTION 1
+
+Plan migracji
+Wstrzymać dalsze rozszerzanie hevc_sps.py i hevc_pps.py.
+Dodać third_party/h265nal przypięte do konkretnego commita.
+Dodać wrapper C++ generujący stabilny JSON.
+Budować wrapper przez CMake na Linux, Windows i macOS.
+Dodać bootstrap kompilatora i CMake do launcherów.
+Zastąpić parsery Step 45/57/58 adapterem h265nal.
+Zachować dotychczasowe parsery chwilowo jako backend legacy, wyłącznie porównawczo.
+Porównać oba backendy na pliku referencyjnym.
+Porównać wynik programu z FFmpeg.
+Usunąć parser legacy po uzyskaniu zgodności i pokryciu testami.
+Nie polegać wyłącznie na jednym parserze przy ustaleniach wysokiej wagi. h265nal powinien być parserem podstawowym, a FFmpeg lub GStreamer źródłem kontroli.
 
 ## P0 — integralność i poprawność pipeline
 
@@ -8,7 +21,6 @@ Lista obejmuje elementy, które pozostają do implementacji, integracji albo wal
 - [ ] Usunąć pozostałe self-importy, circular imports i artefakty błędnych nakładek.
 - [ ] Sprawdzić zgodność `pyproject.toml` ze wszystkimi rzeczywiście istniejącymi punktami wejścia.
 - [ ] Dodać test importu każdego modułu i każdego entry pointu.
-- [ ] Dodać test uruchomienia `--help` dla wszystkich komend CLI.
 - [ ] Zweryfikować, że launchery wywołują wyłącznie istniejące komendy, profile i moduły.
 - [ ] Zapisywać UTC start i koniec każdego modułu oraz całej sesji.
 - [ ] Ujednolicić statusy: `completed`, `failed`, `decoder_error`, `unavailable`, `not_applicable`, `pending`.
@@ -17,7 +29,6 @@ Lista obejmuje elementy, które pozostają do implementacji, integracji albo wal
 
 ## P0 — test referencyjny `1796.mp4`
 
-- [ ] Dodać lokalny test akceptacyjny sprawdzający nazwę, rozmiar i SHA-256 pliku referencyjnego.
 - [ ] Zautomatyzować uruchomienie testów F1–F19 na pliku referencyjnym.
 - [ ] Zapisywać dla każdego testu: `passed`, `failed`, `unavailable` albo `requires_reference`.
 - [ ] Zweryfikować F1: 201031 z 205824 próbek audio równych dokładnie zero.
@@ -63,11 +74,9 @@ Lista obejmuje elementy, które pozostają do implementacji, integracji albo wal
 - [ ] Weryfikować identyczny SHA-256 każdego kontrolowanego strumienia przed porównaniem dekoderów.
 - [ ] Weryfikować jednakową geometrię, przestrzeń kolorów i zakres wartości.
 - [x] Zapisywać per-pixel medianę, odchylenie standardowe i maskę determinacji także w formacie numerycznym.
-- [ ] Zapisywać udział pikseli zdeterminowanych osobno dla każdego kanału i dla całego piksela.
+- [x] Zapisywać udział pikseli zdeterminowanych osobno dla każdego kanału i dla całego piksela.
 - [ ] Dodać konfigurowalne kryterium determinacji z jawnym uzasadnieniem progu.
 - [ ] Dodać kontrolę wrażliwości wyniku na wybrany próg σ.
-- [ ] Dodać test, że raport nie jest emitowany bez niezależnego dekodera.
-- [ ] Dodać test, że builder nie przyjmuje draftu ani planu powiązanego z innym SHA-256.
 - [ ] Dodać pełną ścieżkę: draft → zatwierdzenie → budowa → decode → recovery → verify → report.
 
 ## P0 — macierz dekoderów
@@ -90,20 +99,16 @@ Lista obejmuje elementy, które pozostają do implementacji, integracji albo wal
 
 ## P1 — launchery i automatyzacja wielu plików
 
-- [ ] Zintegrować Step 53 z głównym README zamiast przechowywać osobny `README.patch.md`.
+- [ ] Przenieść główne README do ABOUT, przeredagować, aby tłumaczyło pipeline a nie instruowało jak go użyć; `README.patch.md` z Step 53 przemianować na README
 - [ ] Dodać test składni PowerShell dla `run_all_windows.ps1` na Windows CI.
 - [ ] Dodać testy smoke launcherów Linux i macOS na pliku syntetycznym.
 - [ ] Upewnić się, że brak jednego opcjonalnego profilu nie zatrzymuje przetwarzania pliku.
 - [ ] Upewnić się, że błąd jednego pliku nie zatrzymuje pozostałych, chyba że użyto `--fail-fast`.
 - [ ] Dodać osobny status sesji i status każdego pliku.
-- [ ] Dodać bezpieczne nazwy katalogów także dla kolizji nazw plików o różnych rozszerzeniach.
-- [ ] Uwzględnić SHA-256 w nazwie lub identyfikatorze wyniku pliku.
 - [ ] Dodać blokadę przed równoczesnym zapisem dwóch procesów do tej samej sesji.
 - [ ] Sprawdzić, czy `bundle_decoder_results` przyjmuje dokładnie strukturę generowaną przez `run_matrix`.
 - [ ] Sprawdzić, czy pakiet email nie jest tworzony, gdy eksport klatek dla wszystkich profili zakończył się niepowodzeniem.
-- [ ] Dodać natywny launcher Windows przeznaczony dla X1 Carbon: software, QSV i Intel D3D11VA.
-- [ ] Dodać natywny launcher Windows dla H110: software, Intel D3D11VA, NVIDIA D3D11VA i NVDEC.
-- [ ] Nie traktować WSL na X1 jako oddzielnego hosta macierzy dowodowej.
+- [ ] Zweryfikować launcher Windows, czy obejmuje: software, QSV, Intel D3D11VA, Intel D3D11VA, NVIDIA D3D11VA i NVDEC
 
 ## P1 — eksport klatek i materiał do oględzin
 
@@ -184,7 +189,6 @@ Lista obejmuje elementy, które pozostają do implementacji, integracji albo wal
 - [ ] Dodać kontrolę atomów `mvhd`, `tkhd`, `mdhd`, `hdlr`, `stco` i `co64`.
 - [ ] Oznaczać F8–F11 jako `requires_reference: true`.
 - [ ] Dodać moduł porównujący kontener z materiałem referencyjnym urządzenia.
-- [ ] Dodać bazę profili referencyjnych urządzeń bez automatycznego wnioskowania o źródle.
 
 ## P1 — raport końcowy
 
@@ -204,16 +208,12 @@ Lista obejmuje elementy, które pozostają do implementacji, integracji albo wal
 
 ## P2 — dokumentacja i utrzymanie
 
-- [ ] Wygenerować `PROJECT_TOC.md` z aktualnego repozytorium.
-- [ ] Dodać generator TOC do repozytorium, np. `scripts/generate_project_toc.py`.
+- [x] Wygenerować `PROJECT_TOC.md` z aktualnego repozytorium.
+- [x] Dodać generator TOC do repozytorium, np. `scripts/generate_project_toc.py`.
 - [ ] Aktualizować TOC automatycznie w CI i wykrywać nieaktualną wersję.
-- [ ] Zintegrować instrukcję Step 53 z README.
-- [ ] Usunąć albo zarchiwizować przestarzałe pliki `STEP_N.md` po utrwaleniu historii w Git.
-- [ ] Dodać `CHANGELOG.md`.
-- [ ] Dodać dokument opisujący schematy JSON i CSV.
-- [ ] Dodać dokument opisujący interpretację każdego severity.
-- [ ] Dodać instrukcję instalacji narzędzi zewnętrznych dla Ubuntu, Windows i macOS.
-- [ ] Dodać instrukcję pozyskania zgodnego builda FFmpeg dla każdej platformy.
+- [ ] Skondensować pliki `STEP_N.md` do `CHANGELOG.md`
+- [ ] Dodać opis schematów JSON i CSV w `ABOUT.md`
+- [ ] Dodać interpretację każdego severity w `summary.md`
 - [ ] Dodać licencję przed publiczną dystrybucją.
 
 ## P2 — CI i jakość kodu

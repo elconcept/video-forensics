@@ -1,17 +1,17 @@
-# Step 59: direct libde265 decoding of every controlled orphan variant
+# Step 59: h265nal integration with stable JSON
 
-This step integrates `dec265` directly into `orphan_pipeline`.
+This step adopts `chemag/h265nal` as the primary HEVC syntax parser instead of continuing to duplicate VPS/SPS/PPS/RPS/slice syntax in Python.
 
-After controlled streams are built, the pipeline now:
+It adds:
 
-1. verifies each variant SHA-256 against `orphan_streams.json`
-2. invokes `dec265` separately for every controlled reference variant
-3. records the complete libde265 manifest, command, logs, raw-YUV hash, and frame inventory
-4. converts each raw YUV output to lossless PNG using the declared geometry
-5. writes one decoder-root manifest covering every variant
-6. adds the libde265 root automatically to independent-decoder verification
-7. aborts before reconstruction reporting if any controlled libde265 decode fails
+- a pinned build helper for h265nal
+- cross-platform CMake build and local binary installation
+- a Python adapter invoking the upstream Annex B CLI with offsets and lengths
+- preservation of raw stdout and stderr
+- conversion of the structured brace dump into versioned `h265nal.json`
+- normalized per-NAL records with number, offset, length, header, parsed payload, and raw representation
+- source SHA-256 and exact command provenance
 
-The pipeline accepts `--dec265`, `--width`, `--height`, `--pixel-format`, and `--dec265-threads`. Width, height, and pixel format remain mandatory when dec265 is available because raw YUV output is not self-describing.
+The upstream project explicitly documents Annex B parsing, stateful VPS/SPS/PPS handling, slice parsing, offsets and lengths, unit tests, fuzzing, Windows support, and a BSD license. citeturn111search116turn112search129
 
-The dec265 CLI accepts raw HEVC input, writes decoded YUV with `-o`, and supports a worker-thread argument. citeturn109search327turn109search329turn109search330turn109search331
+The handwritten Python SPS/PPS parsers remain temporarily available as a legacy comparison backend. They should not be extended further before cross-validation against h265nal and FFmpeg.

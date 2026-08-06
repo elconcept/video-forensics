@@ -80,6 +80,8 @@ if (-not (Test-Command "winget") -and -not (Test-Command "choco")) {
     throw "Brak winget i Chocolatey. Zainstaluj App Installer albo Chocolatey."
 }
 Install-PackageFallback "ffmpeg" "Gyan.FFmpeg" "ffmpeg" $true
+Install-PackageFallback "git" "Git.Git" "git" $true
+Install-PackageFallback "cmake" "Kitware.CMake" "cmake" $true
 Install-PackageFallback "mediainfo" "MediaArea.MediaInfo.GUI" "mediainfo" $false
 Install-PackageFallback "exiftool" "OliverBetz.ExifTool" "exiftool" $false
 Install-PackageFallback "tesseract" "UB-Mannheim.TesseractOCR" "tesseract" $false
