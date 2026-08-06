@@ -1,0 +1,205 @@
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+
+def read_json(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        raise FileNotFoundError(f"required JSON file not found: {path}")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise TypeError(f"expected a JSON object: {path}")
+    return payload
+
+
+def read_stability(path: Path) -> list[dict[str, str]]:
+    if not path.is_file():
+        raise FileNotFoundError(f"stability table not found: {path}")
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def decoder_summary(verification: dict[str, Any]) -> dict[str, object]:
+    minimum_ncc_values: list[float] = []
+    mean_ncc_values: list[float] = []
+    maximum_mae_values: list[float] = []
+    missing_frame_records = 0
+    for comparison in verification.get("comparisons", []):
+        for variant in comparison.get("variants", []):
+            if variant.get("minimum_ncc") is not None:
+                minimum_ncc_values.append(float(variant["minimum_ncc"]))
+            if variant.get("mean_ncc") is not None:
+                mean_ncc_values.append(float(variant["mean_ncc"]))
+            if variant.get("maximum_mae") is not None:
+                maximum_mae_values.append(float(variant["maximum_mae"]))
+            missing_frame_records += sum(
+                frame.get("status") == "missing_in_one_decoder"
+                for frame in variant.get("frames", [])
+            )
+    return {
+        "decoder_count": int(verification.get("decoder_count", 0)),
+        "minimum_ncc": min(minimum_ncc_values) if minimum_ncc_values else None,
+        "mean_of_variant_mean_ncc": (
+            sum(mean_ncc_values) / len(mean_ncc_values) if mean_ncc_values else None
+        ),
+        "maximum_mae": max(maximum_mae_values) if maximum_mae_values else None,
+        "missing_frame_record_count": missing_frame_records,
+    }
+
+
+def recovery_summary(rows: list[dict[str, str]]) -> dict[str, object]:
+    fractions = [float(row["determined_pixel_fraction"]) for row in rows]
+    first_fully_determined = next(
+        (
+            int(row["frame_number"])
+            for row in rows
+            if float(row["determined_pixel_fraction"]) == 1.0
+        ),
+        None,
+    )
+    return {
+        "frame_count": len(rows),
+        "minimum_determined_pixel_fraction": min(fractions) if fractions else None,
+        "maximum_determined_pixel_fraction": max(fractions) if fractions else None,
+        "first_fully_determined_frame": first_fully_determined,
+        "fully_determined_frame_count": sum(value == 1.0 for value in fractions),
+    }
+
+
+def finding_record(
+    recovery: dict[str, Any],
+    verification: dict[str, Any],
+    rows: list[dict[str, str]],
+    host_profile: dict[str, Any] | None,
+) -> dict[str, object]:
+    recovery_stats = recovery_summary(rows)
+    decoder_stats = decoder_summary(verification)
+    evidence_refs = [
+        "orphan_recovery/orphan_recovery.json",
+        "orphan_recovery/stability.csv",
+        "orphan_verification/orphan_decoder_verification.json",
+    ]
+    return {
+        "id": "ORPHAN_RECOVERY_CONTROLLED_REFERENCE",
+        "severity": "high",
+        "description": (
+            "Controlled reference-picture variants produced a measurable pixel-determination "
+            "map, with reconstruction reproducibility evaluated across independent decoder outputs."
+        ),
+        "evidence_refs": evidence_refs,
+        "requires_reference": False,
+        "host_profile": None if host_profile is None else host_profile.get("host_profile_id"),
+        "observations": {
+            "variant_count": recovery.get("variant_count"),
+            "sigma_threshold": recovery.get("parameters", {}).get("sigma_threshold"),
+            "recovery": recovery_stats,
+            "decoder_verification": decoder_stats,
+        },
+        "mundane_explanation": (
+            "Residual differences may arise from decoder implementation and color-conversion "
+            "rounding. Pixels outside the determination mask remain dependent on the supplied reference."
+        ),
+        "interpretation_boundary": (
+            "The record establishes controlled reconstruction behavior and measured invariance. "
+            "It does not identify the removed reference picture or issue an authenticity verdict."
+        ),
+    }
+
+
+def render_markdown(finding: dict[str, object]) -> str:
+    observations = finding["observations"]
+    recovery = observations["recovery"]
+    decoder = observations["decoder_verification"]
+    lines = [
+        "# Orphan-tail recovery report",
+        "",
+        f"- Finding ID: `{finding['id']}`",
+        f"- Severity: `{finding['severity']}`",
+        f"- Controlled variants: `{observations['variant_count']}`",
+        f"- Sigma threshold: `{observations['sigma_threshold']}`",
+        f"- Recovered frame count: `{recovery['frame_count']}`",
+        f"- Minimum determined-pixel fraction: `{recovery['minimum_determined_pixel_fraction']}`",
+        f"- Maximum determined-pixel fraction: `{recovery['maximum_determined_pixel_fraction']}`",
+        f"- First fully determined frame: `{recovery['first_fully_determined_frame']}`",
+        f"- Fully determined frames: `{recovery['fully_determined_frame_count']}`",
+        f"- Independent decoder outputs: `{decoder['decoder_count']}`",
+        f"- Minimum cross-decoder NCC: `{decoder['minimum_ncc']}`",
+        f"- Maximum cross-decoder MAE: `{decoder['maximum_mae']}`",
+        f"- Missing-frame records: `{decoder['missing_frame_record_count']}`",
+        "",
+        "## Interpretation boundary",
+        "",
+        str(finding["interpretation_boundary"]),
+        "",
+        "## Alternative technical explanation retained",
+        "",
+        str(finding["mundane_explanation"]),
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def build_report(
+    recovery_root: Path,
+    verification_root: Path,
+    output: Path,
+    host_profile_path: Path | None = None,
+) -> dict[str, object]:
+    recovery_root = recovery_root.expanduser().resolve(strict=True)
+    verification_root = verification_root.expanduser().resolve(strict=True)
+    recovery = read_json(recovery_root / "orphan_recovery.json")
+    verification = read_json(
+        verification_root / "orphan_decoder_verification.json"
+    )
+    rows = read_stability(recovery_root / "stability.csv")
+    host_profile = None
+    if host_profile_path is not None:
+        host_profile = read_json(host_profile_path.expanduser().resolve(strict=True))
+
+    finding = finding_record(recovery, verification, rows, host_profile)
+    output = output.expanduser().resolve()
+    output.mkdir(parents=True, exist_ok=False)
+    result = {
+        "schema_version": 1,
+        "module": "orphan_recovery_report",
+        "finding_count": 1,
+        "findings": [finding],
+    }
+    (output / "findings.json").write_text(
+        json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (output / "orphan_recovery_report.md").write_text(
+        render_markdown(finding), encoding="utf-8", newline="\n"
+    )
+    return result
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="video-forensics-orphan-recovery-report")
+    parser.add_argument("--recovery-root", required=True, type=Path)
+    parser.add_argument("--verification-root", required=True, type=Path)
+    parser.add_argument("--host-profile", type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    args = parser.parse_args()
+    try:
+        result = build_report(
+            args.recovery_root,
+            args.verification_root,
+            args.output,
+            args.host_profile,
+        )
+    except (FileNotFoundError, FileExistsError, KeyError, TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps({"finding_count": result["finding_count"]}, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

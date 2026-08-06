@@ -28,6 +28,7 @@ video-forensics-build-orphan-streams = "video_forensics.native.orphan_stream_bui
 video-forensics-export-visual-frames = "video_forensics.native.visual_frame_export:main"
 video-forensics-decode-orphan-variants = "video_forensics.native.decode_orphan_variants:main"
 video-forensics-verify-orphan-decoders = "video_forensics.native.verify_orphan_decoders:main"
+video-forensics-orphan-recovery-report = "video_forensics.native.orphan_recovery_report:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

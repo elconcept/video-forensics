@@ -1,0 +1,59 @@
+from __future__ import annotations
+
+import csv
+import json
+from pathlib import Path
+
+from video_forensics.native.orphan_recovery_report import build_report
+
+
+def test_build_report_emits_structured_finding(tmp_path: Path) -> None:
+    recovery = tmp_path / "recovery"
+    verification = tmp_path / "verification"
+    recovery.mkdir()
+    verification.mkdir()
+    (recovery / "orphan_recovery.json").write_text(
+        json.dumps(
+            {
+                "variant_count": 4,
+                "parameters": {"sigma_threshold": 8.0},
+            }
+        ),
+        encoding="utf-8",
+    )
+    with (recovery / "stability.csv").open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["frame_number", "determined_pixel_fraction"],
+        )
+        writer.writeheader()
+        writer.writerow({"frame_number": 1, "determined_pixel_fraction": 0.5})
+        writer.writerow({"frame_number": 2, "determined_pixel_fraction": 1.0})
+    (verification / "orphan_decoder_verification.json").write_text(
+        json.dumps(
+            {
+                "decoder_count": 2,
+                "comparisons": [
+                    {
+                        "variants": [
+                            {
+                                "minimum_ncc": 0.99,
+                                "mean_ncc": 0.995,
+                                "maximum_mae": 1.0,
+                                "frames": [{"status": "compared"}],
+                            }
+                        ]
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = build_report(recovery, verification, tmp_path / "report")
+
+    finding = result["findings"][0]
+    assert finding["id"] == "ORPHAN_RECOVERY_CONTROLLED_REFERENCE"
+    assert finding["observations"]["recovery"]["first_fully_determined_frame"] == 2
+    assert finding["observations"]["decoder_verification"]["minimum_ncc"] == 0.99
+    assert (tmp_path / "report" / "orphan_recovery_report.md").is_file()
