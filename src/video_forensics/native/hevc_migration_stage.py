@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from video_forensics.native.hevc_parser_authority import run as run_authority
+from video_forensics.native.hevc_reference_compare import run as run_reference_compare
 
 
 def resolve_binary(explicit: str | None, name: str) -> Path:
@@ -137,6 +138,17 @@ def run_stage(
             legacy_json=legacy_json,
             timeout=timeout,
         )
+        reference = run_reference_compare(
+            annex_b,
+            output / "reference_comparison",
+            repository=repository,
+            ffmpeg=ffmpeg,
+            ffprobe=str(ffprobe),
+            wrapper=wrapper,
+            h265nal=h265nal,
+            legacy_json=legacy_json,
+            timeout=timeout,
+        )
         result = {
             "schema_version": 1,
             "module": "hevc_migration_stage",
@@ -152,6 +164,8 @@ def run_stage(
                 "authoritative_for_high_weight"
             ],
             "authority_manifest": str(authority_root / "parser_authority.json"),
+            "reference_comparison_manifest": str(output / "reference_comparison" / "reference_comparison.json"),
+            "legacy_removal_ready": reference["migration_acceptance"]["ready_for_legacy_removal"],
         }
     (output / "manifest.json").write_text(
         json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
