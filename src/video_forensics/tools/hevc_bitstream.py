@@ -6,6 +6,7 @@ from pathlib import Path
 from time import monotonic
 
 from video_forensics.manifest import atomic_write_json, utc_now
+from video_forensics.tools.hevc_poc import analyze_poc
 
 NAL_NAMES = {
     0: "TRAIL_N", 1: "TRAIL_R", 2: "TSA_N", 3: "TSA_R",
@@ -58,6 +59,7 @@ def parse_annex_b(path: Path) -> list[dict[str, object]]:
             "valid_temporal_id": temporal_id_plus1 != 0,
             "is_vcl": nal_type in VCL_TYPES,
             "is_irap": nal_type in IRAP_TYPES,
+            "payload": data[payload_offset:end],
         })
     return rows
 
@@ -99,10 +101,17 @@ def analyze(video: Path, output_dir: Path) -> dict[str, object]:
     started = monotonic()
     rows = parse_annex_b(stream)
     findings = _findings(rows)
+    poc_analysis = analyze_poc(rows)
+    findings.extend(poc_analysis["findings"])
     counts = Counter(str(row["nal_unit_name"]) for row in rows)
     target = output_dir / "hevc_bitstream"
-    _write_csv(target / "nal_units.csv", rows)
+    csv_rows = [{key: value for key, value in row.items() if key != "payload"} for row in rows]
+    _write_csv(target / "nal_units.csv", csv_rows)
+    _write_csv(target / "pictures.csv", poc_analysis["pictures"])
     atomic_write_json(target / "findings.json", findings)
+    atomic_write_json(target / "poc_analysis.json", poc_analysis)
+    if poc_analysis["orphan_plan_draft"] is not None:
+        atomic_write_json(target / "orphan_plan_draft.json", poc_analysis["orphan_plan_draft"])
     result: dict[str, object] = {
         "schema_version": 1,
         "stage": "hevc_bitstream",
@@ -110,7 +119,7 @@ def analyze(video: Path, output_dir: Path) -> dict[str, object]:
         "duration_seconds": round(monotonic() - started, 6),
         "scope": {
             "implemented": "Annex B NAL boundaries, headers, types, layer and temporal identifiers",
-            "not_yet_implemented": "SPS/PPS syntax, slice headers, POC derivation, RPS dependency graph, CABAC",
+            "not_yet_implemented": "complete SPS/PPS semantics, RPS dependency graph, CABAC",
         },
         "summary": {
             "nal_count": len(rows),
@@ -118,6 +127,9 @@ def analyze(video: Path, output_dir: Path) -> dict[str, object]:
             "irap_count": sum(bool(row["is_irap"]) for row in rows),
             "type_counts": dict(sorted(counts.items())),
             "finding_count": len(findings),
+            "picture_count": len(poc_analysis["pictures"]),
+            "poc_regression_count": len(poc_analysis["findings"]),
+            "slice_parse_error_count": len(poc_analysis["parse_errors"]),
         },
         "outputs": {
             "nal_units": "hevc_bitstream/nal_units.csv",
