@@ -40,7 +40,7 @@ Lista obejmuje elementy, które pozostają do implementacji, integracji albo wal
 
 ## P0 — HEVC, POC i RPS
 
-- [ ] Dokończyć parser SPS zamiast kończyć go po polach potrzebnych do `log2_max_poc_lsb`.
+- [x] Dokończyć parser SPS zamiast kończyć go po polach potrzebnych do `log2_max_poc_lsb`.
 - [ ] Dokończyć parser PPS.
 - [ ] Obsłużyć pełny nagłówek pierwszego i zależnego segmentu slice.
 - [ ] Poprawnie obsłużyć `slice_segment_address`.

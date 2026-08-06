@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from video_forensics.tools.hevc_pps import parse_pps_complete, pps_to_dict
 from video_forensics.tools.hevc_sps import parse_sps_complete, sps_to_dict
 
 IRAP_TYPES = set(range(16, 24))
@@ -101,14 +102,8 @@ def parse_sps(nal_payload: bytes):
     return parse_sps_complete(nal_payload)
 
 
-def parse_pps(nal_payload: bytes) -> PPS:
-    reader = BitReader(rbsp(nal_payload[2:]))
-    pps_id = reader.ue()
-    sps_id = reader.ue()
-    dependent = reader.bit()
-    output_flag = reader.bit()
-    extra_bits = reader.bits(3)
-    return PPS(pps_id, sps_id, dependent, output_flag, extra_bits)
+def parse_pps(nal_payload: bytes):
+    return parse_pps_complete(nal_payload)
 
 
 def parse_first_slice(
@@ -277,7 +272,7 @@ def analyze_poc(nals: list[dict[str, object]]) -> dict[str, object]:
             }
     return {
         "sps": [sps_to_dict(value) for value in sps_map.values()],
-        "pps": [vars(value) for value in pps_map.values()],
+        "pps": [pps_to_dict(value) for value in pps_map.values()],
         "pictures": pictures,
         "findings": findings,
         "parse_errors": parse_errors,
