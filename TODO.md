@@ -10,12 +10,9 @@ Lista obejmuje elementy, które pozostają do implementacji, integracji albo wal
 - [ ] Dodać test importu każdego modułu i każdego entry pointu.
 - [ ] Dodać test uruchomienia `--help` dla wszystkich komend CLI.
 - [ ] Zweryfikować, że launchery wywołują wyłącznie istniejące komendy, profile i moduły.
-- [ ] Sprawdzić, czy każdy moduł zapisuje wynik poza katalogiem dowodowym.
-- [ ] Wymusić sprawdzenie, że katalog wynikowy nie znajduje się wewnątrz `work/evidence`.
 - [ ] Zapisywać UTC start i koniec każdego modułu oraz całej sesji.
 - [ ] Ujednolicić statusy: `completed`, `failed`, `decoder_error`, `unavailable`, `not_applicable`, `pending`.
 - [ ] Dodać końcowy manifest sesji obejmujący status wszystkich etapów dla każdego pliku.
-- [ ] Dodać możliwość wznowienia przerwanej sesji bez nadpisywania ukończonych wyników.
 - [ ] Dodać tryb `--fail-fast` oraz domyślny tryb kontynuowania analizy pozostałych plików po błędzie jednego pliku.
 
 ## P0 — test referencyjny `1796.mp4`

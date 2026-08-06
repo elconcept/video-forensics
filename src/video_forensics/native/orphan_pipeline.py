@@ -6,6 +6,7 @@ import shutil
 import sys
 from pathlib import Path
 
+from video_forensics.native.decode_orphan_libde265 import decode_variants
 from video_forensics.native.decode_orphan_variants import decode_all
 from video_forensics.native.orphan_recovery import run_recovery
 from video_forensics.native.orphan_recovery_report import build_report
@@ -30,6 +31,11 @@ def run_pipeline(
     external_decoder_roots: list[Path],
     host_profile: Path | None,
     timeout: int,
+    dec265: Path | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    pixel_format: str = "yuv420p",
+    dec265_threads: int = 0,
 ) -> dict[str, object]:
     annex_b = annex_b.expanduser().resolve(strict=True)
     plan = plan.expanduser().resolve(strict=True)
@@ -63,6 +69,26 @@ def run_pipeline(
     )
 
     decoder_roots = [libavcodec_root]
+    libde265_root = output / "decoder_libde265"
+    libde265_result = None
+    if dec265 is not None:
+        if width is None or height is None:
+            raise ValueError("--width and --height are required when dec265 is available")
+        libde265_result = decode_variants(
+            streams_root,
+            libde265_root,
+            width=width,
+            height=height,
+            pixel_format=pixel_format,
+            threads=dec265_threads,
+            dec265=dec265,
+            ffmpeg=ffmpeg,
+            host_profile_id=None,
+            timeout=timeout,
+        )
+        if not libde265_result["all_successful"]:
+            raise RuntimeError("one or more controlled libde265 decodes failed")
+        decoder_roots.append(libde265_root)
     decoder_roots.extend(
         root.expanduser().resolve(strict=True) for root in external_decoder_roots
     )
@@ -104,6 +130,11 @@ def run_pipeline(
                 "frame_count": recovery["frame_count"],
                 "output": str(recovery_root),
             },
+            "libde265_decode": {
+                "status": "completed" if libde265_result is not None else "unavailable",
+                "variant_count": 0 if libde265_result is None else libde265_result["variant_count"],
+                "output": None if libde265_result is None else str(libde265_root),
+            },
             "independent_verification": {
                 "status": "completed" if verification is not None else "pending",
                 "decoder_count": 0 if verification is None else verification["decoder_count"],
@@ -136,6 +167,11 @@ def main() -> int:
     parser.add_argument("--external-decoder-root", action="append", type=Path, default=[])
     parser.add_argument("--host-profile", type=Path)
     parser.add_argument("--timeout", type=int, default=7200)
+    parser.add_argument("--dec265")
+    parser.add_argument("--width", type=int)
+    parser.add_argument("--height", type=int)
+    parser.add_argument("--pixel-format", choices=("yuv420p", "yuv444p", "gray"), default="yuv420p")
+    parser.add_argument("--dec265-threads", type=int, default=0)
     args = parser.parse_args()
     try:
         result = run_pipeline(
@@ -147,6 +183,11 @@ def main() -> int:
             external_decoder_roots=args.external_decoder_root,
             host_profile=args.host_profile,
             timeout=args.timeout,
+            dec265=__import__("video_forensics.native.libde265_run", fromlist=["find_dec265"]).find_dec265(args.dec265),
+            width=args.width,
+            height=args.height,
+            pixel_format=args.pixel_format,
+            dec265_threads=args.dec265_threads,
         )
     except (
         FileNotFoundError,

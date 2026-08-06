@@ -21,6 +21,7 @@ dev = [
 ]
 
 [project.scripts]
+video-forensics-decode-orphan-libde265 = "video_forensics.native.decode_orphan_libde265:main"
 video-forensics-result-summary = "video_forensics.native.result_summary:main"
 video-forensics-review-orphan-plan = "video_forensics.native.orphan_plan_review:main"
 video-forensics-submission-bundle = "video_forensics.native.submission_bundle:main"
