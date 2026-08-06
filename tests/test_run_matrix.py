@@ -1,0 +1,23 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from video_forensics.native.run_matrix import selected_profiles
+
+
+def test_linux_profile_selection_includes_software_and_hardware(tmp_path: Path) -> None:
+    names = [path.name for path in selected_profiles("Linux", tmp_path)]
+    assert names[:2] == [
+        "software_single_thread.json",
+        "software_automatic_threads.json",
+    ]
+    assert "linux_nvdec.json" in names
+    assert "linux_vaapi.json" in names
+    assert "linux_qsv.json" in names
+
+
+def test_unknown_platform_falls_back_to_software(tmp_path: Path) -> None:
+    assert [path.name for path in selected_profiles("Other", tmp_path)] == [
+        "software_single_thread.json",
+        "software_automatic_threads.json",
+    ]

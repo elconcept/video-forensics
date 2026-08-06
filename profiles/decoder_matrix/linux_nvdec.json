@@ -1,0 +1,17 @@
+{
+  "profile_id": "linux_nvdec",
+  "description": "Linux FFmpeg HEVC decode through CUDA/NVDEC",
+  "ffmpeg_args": [
+    "-hwaccel",
+    "cuda",
+    "-hwaccel_output_format",
+    "cuda"
+  ],
+  "requires": {
+    "hwaccel": "cuda",
+    "device": [
+      "nvidia-smi",
+      "-L"
+    ]
+  }
+}

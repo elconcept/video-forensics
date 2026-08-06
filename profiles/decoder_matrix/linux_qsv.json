@@ -1,0 +1,13 @@
+{
+  "profile_id": "linux_qsv",
+  "description": "Linux FFmpeg HEVC decode through Intel QSV",
+  "ffmpeg_args": [
+    "-hwaccel",
+    "qsv",
+    "-hwaccel_output_format",
+    "qsv"
+  ],
+  "requires": {
+    "hwaccel": "qsv"
+  }
+}
