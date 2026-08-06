@@ -165,7 +165,13 @@ for INPUT in "${FILES[@]}"; do
   mkdir -p "$OUT"
 
   video-forensics analyze "$INPUT" --output "$OUT/baseline"
-  video-forensics-hevc-migration-stage "$INPUT" --output "$OUT/hevc_parser_migration" --repository .
+  video-forensics-hevc-legacy-discovery "$OUT" --output "$OUT/legacy_discovery.json"
+  LEGACY_JSON=$("$PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1])).get("selected_legacy_json") or "")' "$OUT/legacy_discovery.json")
+  if [ -n "$LEGACY_JSON" ]; then
+    video-forensics-hevc-migration-stage "$INPUT" --output "$OUT/hevc_parser_migration" --repository . --legacy-json "$LEGACY_JSON"
+  else
+    video-forensics-hevc-migration-stage "$INPUT" --output "$OUT/hevc_parser_migration" --repository .
+  fi
   video-forensics-run-matrix "$INPUT" --output "$OUT/matrix"
 
   PROFILE_ARGS=()

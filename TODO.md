@@ -1,6 +1,8 @@
 # TODO projektu `video-forensics`
 
 ## INTERVENTION 1
+qvk analyze ./1796.mp4 --preset deep --json-out report.json --html-out report.html
+
 
 Plan migracji
 Wstrzymać dalsze rozszerzanie hevc_sps.py i hevc_pps.py.
