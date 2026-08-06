@@ -21,6 +21,7 @@ dev = [
 ]
 
 [project.scripts]
+video-forensics-hevc-parser-authority = "video_forensics.native.hevc_parser_authority:main"
 video-forensics-normalize-h265nal = "video_forensics.native.h265nal_normalizer:main"
 video-forensics-hevc-migration-gate = "video_forensics.native.hevc_parser_migration_gate:main"
 video-forensics-hevc-syntax = "video_forensics.native.h265nal_pipeline:main"
