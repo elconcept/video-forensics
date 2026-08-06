@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "case_id": "reference-main",
+      "source": "../work/evidence/reference.h265",
+      "source_sha256": "REPLACE_WITH_VERIFIED_SHA256",
+      "comparison": "../work/results/reference/latest/hevc_parser_migration/reference_comparison/reference_comparison.json",
+      "max_field_mismatches": 0,
+      "minimum_comparable_records": 1,
+      "require_legacy_agreement": true,
+      "require_complete_rps": true
+    }
+  ]
+}

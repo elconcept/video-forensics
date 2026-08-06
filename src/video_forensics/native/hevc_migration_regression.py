@@ -1,0 +1,162 @@
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+
+def read_object(path: Path) -> dict[str, Any]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise TypeError(f"expected JSON object: {path}")
+    return value
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(8 * 1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def load_cases(config: Path) -> list[dict[str, Any]]:
+    payload = read_object(config)
+    cases = payload.get("cases")
+    if not isinstance(cases, list) or not cases:
+        raise ValueError("migration regression config contains no cases")
+    normalized: list[dict[str, Any]] = []
+    for index, case in enumerate(cases):
+        if not isinstance(case, dict):
+            raise TypeError(f"case {index} must be an object")
+        for required in ("case_id", "source", "comparison"):
+            if required not in case:
+                raise KeyError(f"case {index} has no {required}")
+        normalized.append(case)
+    return normalized
+
+
+def validate_case(case: dict[str, Any], base: Path) -> dict[str, Any]:
+    source = (base / str(case["source"])).resolve(strict=True)
+    comparison_path = (base / str(case["comparison"])).resolve(strict=True)
+    comparison = read_object(comparison_path)
+    acceptance = comparison.get("migration_acceptance")
+    semantic = comparison.get("semantic")
+    if not isinstance(acceptance, dict):
+        raise TypeError(f"comparison has no migration_acceptance: {comparison_path}")
+    if not isinstance(semantic, dict):
+        raise TypeError(f"comparison has no semantic result: {comparison_path}")
+
+    expected_sha = case.get("source_sha256")
+    actual_sha = sha256(source)
+    source_matches = expected_sha is None or str(expected_sha).lower() == actual_sha
+    max_mismatches = int(case.get("max_field_mismatches", 0))
+    minimum_records = int(case.get("minimum_comparable_records", 1))
+    require_rps = bool(case.get("require_complete_rps", False))
+    legacy_required = bool(case.get("require_legacy_agreement", True))
+
+    checks = [
+        {
+            "id": "SOURCE_SHA256",
+            "passed": source_matches,
+            "expected": expected_sha,
+            "actual": actual_sha,
+        },
+        {
+            "id": "FFMPEG_CONTROL",
+            "passed": bool(acceptance.get("ffmpeg_control_passed")),
+        },
+        {
+            "id": "FIELD_MISMATCH_LIMIT",
+            "passed": int(semantic.get("field_mismatch_count", -1))
+            <= max_mismatches,
+            "actual": semantic.get("field_mismatch_count"),
+            "maximum": max_mismatches,
+        },
+        {
+            "id": "COMPARABLE_RECORD_MINIMUM",
+            "passed": int(semantic.get("comparable_record_count", 0))
+            >= minimum_records,
+            "actual": semantic.get("comparable_record_count"),
+            "minimum": minimum_records,
+        },
+    ]
+    if legacy_required:
+        checks.append(
+            {
+                "id": "LEGACY_SEMANTIC_AGREEMENT",
+                "passed": bool(semantic.get("legacy_semantic_agreement")),
+            }
+        )
+    if require_rps:
+        checks.append(
+            {
+                "id": "RPS_COMPARISON_COMPLETE",
+                "passed": bool(semantic.get("rps_comparison_complete")),
+            }
+        )
+    return {
+        "case_id": str(case["case_id"]),
+        "source": str(source),
+        "source_sha256": actual_sha,
+        "comparison": str(comparison_path),
+        "passed": all(check["passed"] for check in checks),
+        "checks": checks,
+    }
+
+
+def evaluate(config: Path, output: Path) -> dict[str, Any]:
+    config = config.expanduser().resolve(strict=True)
+    cases = load_cases(config)
+    results = [validate_case(case, config.parent) for case in cases]
+    result = {
+        "schema_version": 1,
+        "module": "hevc_migration_regression",
+        "config": str(config),
+        "case_count": len(results),
+        "passed_case_count": sum(item["passed"] for item in results),
+        "passed": all(item["passed"] for item in results),
+        "legacy_removal_ready": all(item["passed"] for item in results),
+        "cases": results,
+        "policy": {
+            "primary_backend": "h265nal",
+            "legacy_backend": "comparison_only",
+            "independent_control": "FFmpeg trace_headers",
+            "legacy_removal_requires_all_cases": True,
+        },
+    }
+    output = output.expanduser().resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return result
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="video-forensics-hevc-migration-regression")
+    parser.add_argument("config", type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    args = parser.parse_args()
+    try:
+        result = evaluate(args.config, args.output)
+    except (
+        FileNotFoundError,
+        KeyError,
+        OSError,
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+    ) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result["passed"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
