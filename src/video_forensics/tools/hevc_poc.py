@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from video_forensics.tools.hevc_sps import parse_sps_complete, sps_to_dict
+
 IRAP_TYPES = set(range(16, 24))
 IDR_TYPES = {19, 20}
 VCL_TYPES = set(range(32))
@@ -95,32 +97,8 @@ class SliceHeader:
     poc_lsb: int | None
 
 
-def parse_sps(nal_payload: bytes) -> SPS:
-    reader = BitReader(rbsp(nal_payload[2:]))
-    reader.bits(4)
-    max_sub_layers_minus1 = reader.bits(3)
-    reader.bit()
-    skip_profile_tier_level(reader, max_sub_layers_minus1)
-    sps_id = reader.ue()
-    chroma_format_idc = reader.ue()
-    separate_colour_plane_flag = reader.bit() if chroma_format_idc == 3 else 0
-    width = reader.ue()
-    height = reader.ue()
-    if reader.bit():
-        reader.ue()
-        reader.ue()
-        reader.ue()
-        reader.ue()
-    reader.ue()
-    reader.ue()
-    log2_max_poc_lsb = reader.ue() + 4
-    return SPS(
-        sps_id=sps_id,
-        width=width,
-        height=height,
-        log2_max_poc_lsb=log2_max_poc_lsb,
-        separate_colour_plane_flag=separate_colour_plane_flag,
-    )
+def parse_sps(nal_payload: bytes):
+    return parse_sps_complete(nal_payload)
 
 
 def parse_pps(nal_payload: bytes) -> PPS:
@@ -298,7 +276,7 @@ def analyze_poc(nals: list[dict[str, object]]) -> dict[str, object]:
                 "status": "draft_requires_review",
             }
     return {
-        "sps": [vars(value) for value in sps_map.values()],
+        "sps": [sps_to_dict(value) for value in sps_map.values()],
         "pps": [vars(value) for value in pps_map.values()],
         "pictures": pictures,
         "findings": findings,
