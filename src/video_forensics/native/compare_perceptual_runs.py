@@ -46,6 +46,15 @@ def compare(root: Path, output: Path) -> dict[str, object]:
     directories = sorted(path.parent for path in root.glob("*_perceptual/manifest.json"))
     if len(directories) < 2:
         raise ValueError("at least two perceptual decoder runs are required")
+    manifests = {
+        directory.name: json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
+        for directory in directories
+    }
+    input_hashes = {
+        manifest.get("input", {}).get("sha256") for manifest in manifests.values()
+    }
+    if None in input_hashes or len(input_hashes) != 1:
+        raise ValueError("perceptual runs do not share one verified input SHA-256")
     runs = {
         directory.name: sorted((directory / "frames").glob("frame_*.gray"))
         for directory in directories
@@ -75,6 +84,7 @@ def compare(root: Path, output: Path) -> dict[str, object]:
 
     result: dict[str, object] = {
         "schema_version": 1,
+        "input_sha256": next(iter(input_hashes)),
         "normalization": {"width": WIDTH, "height": HEIGHT, "pixel_format": "gray"},
         "run_ids": list(runs),
         "frame_counts": {name: len(paths) for name, paths in runs.items()},

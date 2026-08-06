@@ -15,6 +15,14 @@ HEIGHT = 108
 FRAME_BYTES = WIDTH * HEIGHT
 
 
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(8 * 1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def find_binary(name: str, explicit: str | None) -> Path:
     candidate = explicit or shutil.which(name)
     if not candidate:
@@ -99,7 +107,11 @@ def execute(
     manifest = {
         "schema_version": 1,
         "profile_id": profile_id,
-        "input": {"path": str(video), "size_bytes": video.stat().st_size},
+        "input": {
+            "path": str(video),
+            "size_bytes": video.stat().st_size,
+            "sha256": sha256(video),
+        },
         "normalization": {"width": WIDTH, "height": HEIGHT, "pixel_format": "gray"},
         "command": argv,
         "returncode": returncode,
