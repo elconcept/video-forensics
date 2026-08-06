@@ -35,6 +35,7 @@ video-forensics-libde265-run = "video_forensics.native.libde265_run:main"
 video-forensics-orphan-pipeline = "video_forensics.native.orphan_pipeline:main"
 video-forensics-playback-divergence = "video_forensics.native.playback_divergence:main"
 video-forensics-static-region-motion = "video_forensics.native.static_region_motion:main"
+video-forensics-osd-reader = "video_forensics.native.osd_reader:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
