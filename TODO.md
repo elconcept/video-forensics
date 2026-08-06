@@ -56,7 +56,7 @@ Lista obejmuje elementy, które pozostają do implementacji, integracji albo wal
 
 ## P0 — rekonstrukcja osieroconego ogona
 
-- [ ] Zintegrować `dec265` bezpośrednio z `orphan_pipeline` dla wszystkich kontrolowanych wariantów.
+- [x] Zintegrować `dec265` bezpośrednio z `orphan_pipeline` dla wszystkich kontrolowanych wariantów.
 - [ ] Konwertować wynik YUV z libde265 do bezstratnych PNG bez zmiany kolejności klatek.
 - [ ] Dodać manifest zgodny z `verify_orphan_decoders` dla libde265.
 - [ ] Dodać uruchomienie niezależnego dekodera jednym poleceniem, bez ręcznego przygotowania drzewa wyników.

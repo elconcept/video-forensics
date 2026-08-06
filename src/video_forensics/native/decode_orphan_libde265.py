@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from video_forensics.native.libde265_run import find_dec265, run_decode
+from video_forensics.native.yuv_png_sequence import convert_sequence
 
 
 def sha256(path: Path) -> str:
@@ -33,46 +34,6 @@ def find_ffmpeg(explicit: str | None) -> Path:
         raise FileNotFoundError("cannot find ffmpeg; pass --ffmpeg")
     return Path(candidate).expanduser().resolve(strict=True)
 
-
-def convert_yuv_to_png(
-    yuv: Path,
-    frames: Path,
-    *,
-    width: int,
-    height: int,
-    pixel_format: str,
-    ffmpeg: Path,
-    timeout: int,
-) -> tuple[list[str], str]:
-    frames.mkdir(parents=True, exist_ok=False)
-    argv = [
-        str(ffmpeg),
-        "-nostdin",
-        "-hide_banner",
-        "-loglevel",
-        "warning",
-        "-f",
-        "rawvideo",
-        "-pixel_format",
-        pixel_format,
-        "-video_size",
-        f"{width}x{height}",
-        "-i",
-        str(yuv),
-        "-vsync",
-        "0",
-        str(frames / "frame_%09d.png"),
-    ]
-    completed = subprocess.run(
-        argv,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        check=False,
-    )
-    if completed.returncode != 0:
-        raise RuntimeError(completed.stderr.strip() or "raw YUV to PNG conversion failed")
-    return argv, completed.stderr
 
 
 def decode_variants(
@@ -130,7 +91,7 @@ def decode_variants(
         }
         if result["status"] == "completed":
             yuv = run_root / "decoded.yuv"
-            command, diagnostic = convert_yuv_to_png(
+            sequence = convert_sequence(
                 yuv,
                 variant_root / "frames",
                 width=width,
@@ -139,10 +100,11 @@ def decode_variants(
                 ffmpeg=ffmpeg,
                 timeout=timeout,
             )
-            (variant_root / "ffmpeg_stderr.txt").write_text(
-                diagnostic, encoding="utf-8"
-            )
             pngs = sorted((variant_root / "frames").glob("frame_*.png"))
+            if len(pngs) != int(result["frame_count"]):
+                raise RuntimeError(
+                    "libde265 raw-frame count differs from generated PNG count"
+                )
             record.update(
                 {
                     "status": "completed",
@@ -156,7 +118,8 @@ def decode_variants(
                         }
                         for index, path in enumerate(pngs, start=1)
                     ],
-                    "conversion_command": command,
+                    "sequence_manifest": str(variant_root / "frames" / "yuv_png_sequence.json"),
+                    "order_policy": sequence["order_policy"],
                 }
             )
         else:

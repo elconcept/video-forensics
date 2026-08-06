@@ -1,0 +1,57 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from video_forensics.native.yuv_png_sequence import convert_sequence
+
+
+def test_rejects_partial_raw_frame(tmp_path: Path) -> None:
+    yuv = tmp_path / "broken.yuv"
+    yuv.write_bytes(b"x" * 7)
+    with pytest.raises(ValueError, match="not divisible"):
+        convert_sequence(
+            yuv,
+            tmp_path / "frames",
+            width=2,
+            height=2,
+            pixel_format="yuv420p",
+            ffmpeg=Path("/bin/true"),
+            timeout=60,
+        )
+
+
+def test_source_order_is_explicit_in_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    yuv = tmp_path / "two.yuv"
+    yuv.write_bytes(b"a" * 6 + b"b" * 6)
+
+    class Completed:
+        returncode = 0
+        stderr = ""
+
+    def fake_run(argv: list[str], **_: object) -> Completed:
+        Path(argv[-1]).write_bytes(b"png")
+        return Completed()
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    result = convert_sequence(
+        yuv,
+        tmp_path / "frames",
+        width=2,
+        height=2,
+        pixel_format="yuv420p",
+        ffmpeg=Path("ffmpeg"),
+        timeout=60,
+    )
+    assert result["frame_count"] == 2
+    assert [row["source_frame_index"] for row in result["frames"]] == [0, 1]
+    assert [row["filename"] for row in result["frames"]] == [
+        "frame_000000001.png",
+        "frame_000000002.png",
+    ]
+    manifest = json.loads(
+        (tmp_path / "frames" / "yuv_png_sequence.json").read_text()
+    )
+    assert "separate FFmpeg invocation" in manifest["order_policy"]

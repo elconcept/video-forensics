@@ -1,0 +1,152 @@
+from __future__ import annotations
+
+import csv
+import hashlib
+import json
+import subprocess
+import tempfile
+from pathlib import Path
+
+from video_forensics.native.libde265_run import frame_size
+
+
+def sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(8 * 1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def convert_sequence(
+    yuv: Path,
+    output: Path,
+    *,
+    width: int,
+    height: int,
+    pixel_format: str,
+    ffmpeg: Path,
+    timeout: int,
+) -> dict[str, object]:
+    yuv = yuv.expanduser().resolve(strict=True)
+    output = output.expanduser().resolve()
+    output.mkdir(parents=True, exist_ok=False)
+    bytes_per_frame = frame_size(width, height, pixel_format)
+    total_bytes = yuv.stat().st_size
+    if total_bytes % bytes_per_frame:
+        raise ValueError(
+            "raw YUV size is not divisible by one frame: "
+            f"{total_bytes} % {bytes_per_frame}"
+        )
+    expected_count = total_bytes // bytes_per_frame
+    rows: list[dict[str, object]] = []
+    with yuv.open("rb") as source, tempfile.TemporaryDirectory(
+        prefix="yuv-png-sequence-"
+    ) as temporary:
+        raw_frame = Path(temporary) / "frame.yuv"
+        for source_index in range(expected_count):
+            data = source.read(bytes_per_frame)
+            if len(data) != bytes_per_frame:
+                raise ValueError(f"short raw frame at source index {source_index}")
+            raw_frame.write_bytes(data)
+            frame_number = source_index + 1
+            filename = f"frame_{frame_number:09d}.png"
+            target = output / filename
+            argv = [
+                str(ffmpeg),
+                "-nostdin",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "rawvideo",
+                "-pixel_format",
+                pixel_format,
+                "-video_size",
+                f"{width}x{height}",
+                "-i",
+                str(raw_frame),
+                "-frames:v",
+                "1",
+                "-c:v",
+                "png",
+                str(target),
+            ]
+            completed = subprocess.run(
+                argv,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+            if completed.returncode != 0 or not target.is_file():
+                raise RuntimeError(
+                    completed.stderr.strip()
+                    or f"PNG conversion failed at source index {source_index}"
+                )
+            rows.append(
+                {
+                    "source_frame_index": source_index,
+                    "frame_number": frame_number,
+                    "filename": filename,
+                    "source_offset": source_index * bytes_per_frame,
+                    "source_size_bytes": bytes_per_frame,
+                    "source_frame_sha256": sha256_bytes(data),
+                    "png_size_bytes": target.stat().st_size,
+                    "png_sha256": sha256(target),
+                }
+            )
+    actual_files = sorted(output.glob("frame_*.png"))
+    if len(actual_files) != expected_count:
+        raise RuntimeError(
+            f"PNG count differs from raw frame count: {len(actual_files)} != {expected_count}"
+        )
+    expected_names = [f"frame_{index:09d}.png" for index in range(1, expected_count + 1)]
+    actual_names = [path.name for path in actual_files]
+    if actual_names != expected_names:
+        raise RuntimeError("PNG filenames are not a contiguous source-order sequence")
+
+    columns = list(rows[0]) if rows else [
+        "source_frame_index",
+        "frame_number",
+        "filename",
+        "source_offset",
+        "source_size_bytes",
+        "source_frame_sha256",
+        "png_size_bytes",
+        "png_sha256",
+    ]
+    with (output / "index.csv").open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(rows)
+    result: dict[str, object] = {
+        "schema_version": 1,
+        "module": "yuv_png_sequence",
+        "source": {
+            "path": str(yuv),
+            "size_bytes": total_bytes,
+            "sha256": sha256(yuv),
+        },
+        "geometry": {
+            "width": width,
+            "height": height,
+            "pixel_format": pixel_format,
+            "bytes_per_frame": bytes_per_frame,
+        },
+        "frame_count": expected_count,
+        "order_policy": (
+            "Each fixed-size raw frame is converted in a separate FFmpeg invocation. "
+            "PNG number N maps only to zero-based raw-frame index N-1."
+        ),
+        "frames": rows,
+    }
+    (output / "yuv_png_sequence.json").write_text(
+        json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return result
