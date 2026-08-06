@@ -8,6 +8,7 @@ from video_forensics import __version__
 from video_forensics.manifest import atomic_write_json, base_manifest, utc_now
 from video_forensics.tools import (
     audio,
+    av_sync,
     blending,
     compression,
     container_structure,
@@ -20,7 +21,7 @@ from video_forensics.tools import (
     timeline,
 )
 
-SUPPORTED_STAGES = ("integrity", "metadata", "container_structure", "timeline", "gop", "frame_metrics", "continuity", "duplicates", "blending", "compression", "audio")
+SUPPORTED_STAGES = ("integrity", "metadata", "container_structure", "timeline", "gop", "frame_metrics", "continuity", "duplicates", "blending", "compression", "audio", "av_sync")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -79,6 +80,8 @@ def run_analysis(video: Path, output: Path, stages: list[str]) -> int:
             manifestation["stages"]["compression"] = compression.analyze(video, output)
         if "audio" in stages:
             manifestation["stages"]["audio"] = audio.analyze(video, output)
+        if "av_sync" in stages:
+            manifestation["stages"]["av_sync"] = av_sync.analyze(video, output)
         manifestation["run"]["status"] = "completed"
         manifestation["run"]["completed_at_utc"] = utc_now()
         return 0
