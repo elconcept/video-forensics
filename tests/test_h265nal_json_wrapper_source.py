@@ -1,0 +1,22 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+
+def test_wrapper_has_stable_json_contract() -> None:
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "native/h265nal_json_wrapper/main.cpp").read_text()
+    assert '"schema_version"' in source
+    assert '"backend"' in source
+    assert '"exit_status"' in source
+    assert '"stdout"' in source
+    assert '"stderr"' in source
+    assert "--add-length" in source
+    assert "--add-offset" in source
+
+
+def test_wrapper_is_built_by_cmake() -> None:
+    root = Path(__file__).resolve().parents[1]
+    cmake = (root / "native/h265nal_json_wrapper/CMakeLists.txt").read_text()
+    assert "add_executable(h265nal_json_wrapper" in cmake
+    assert "cxx_std_17" in cmake

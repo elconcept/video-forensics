@@ -1,0 +1,120 @@
+#include <chrono>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <random>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+namespace fs = std::filesystem;
+
+static std::string json_escape(const std::string& value) {
+  std::ostringstream out;
+  for (unsigned char ch : value) {
+    switch (ch) {
+      case '\\': out << "\\\\"; break;
+      case '"': out << "\\\""; break;
+      case '\b': out << "\\b"; break;
+      case '\f': out << "\\f"; break;
+      case '\n': out << "\\n"; break;
+      case '\r': out << "\\r"; break;
+      case '\t': out << "\\t"; break;
+      default:
+        if (ch < 0x20) {
+          const char* hex = "0123456789abcdef";
+          out << "\\u00" << hex[(ch >> 4) & 0x0f] << hex[ch & 0x0f];
+        } else {
+          out << static_cast<char>(ch);
+        }
+    }
+  }
+  return out.str();
+}
+
+static std::string shell_quote(const std::string& value) {
+#ifdef _WIN32
+  std::string result = "\"";
+  for (char ch : value) {
+    if (ch == '"') result += "\\\"";
+    else result += ch;
+  }
+  return result + "\"";
+#else
+  std::string result = "'";
+  for (char ch : value) {
+    if (ch == '\'') result += "'\\''";
+    else result += ch;
+  }
+  return result + "'";
+#endif
+}
+
+static std::string read_file(const fs::path& path) {
+  std::ifstream stream(path, std::ios::binary);
+  if (!stream) throw std::runtime_error("cannot read temporary output");
+  std::ostringstream buffer;
+  buffer << stream.rdbuf();
+  return buffer.str();
+}
+
+static fs::path temporary_path(const std::string& suffix) {
+  std::random_device source;
+  const auto stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+  return fs::temp_directory_path() /
+         ("video-forensics-h265nal-" + std::to_string(stamp) + "-" +
+          std::to_string(source()) + suffix);
+}
+
+int main(int argc, char** argv) {
+  std::string binary;
+  std::string input;
+  for (int index = 1; index < argc; ++index) {
+    const std::string argument = argv[index];
+    if (argument == "--h265nal" && index + 1 < argc) binary = argv[++index];
+    else if (argument == "--input" && index + 1 < argc) input = argv[++index];
+    else if (argument == "--help") {
+      std::cout << "usage: h265nal_json_wrapper --h265nal PATH --input FILE\n";
+      return 0;
+    } else {
+      std::cerr << "unknown or incomplete argument: " << argument << "\n";
+      return 2;
+    }
+  }
+  if (binary.empty() || input.empty()) {
+    std::cerr << "--h265nal and --input are required\n";
+    return 2;
+  }
+  const fs::path stdout_path = temporary_path(".stdout.txt");
+  const fs::path stderr_path = temporary_path(".stderr.txt");
+  try {
+    const std::string command =
+        shell_quote(binary) + " -i " + shell_quote(input) +
+        " --no-as-one-line --add-length --add-offset > " +
+        shell_quote(stdout_path.string()) + " 2> " + shell_quote(stderr_path.string());
+    const int system_status = std::system(command.c_str());
+    const std::string standard_output = read_file(stdout_path);
+    const std::string standard_error = read_file(stderr_path);
+    fs::remove(stdout_path);
+    fs::remove(stderr_path);
+    std::cout
+        << "{\n"
+        << "  \"schema_version\": 1,\n"
+        << "  \"backend\": \"h265nal\",\n"
+        << "  \"input\": \"" << json_escape(fs::absolute(input).string()) << "\",\n"
+        << "  \"command_contract\": \"annex_b_full_file_text\",\n"
+        << "  \"exit_status\": " << system_status << ",\n"
+        << "  \"success\": " << (system_status == 0 ? "true" : "false") << ",\n"
+        << "  \"stdout\": \"" << json_escape(standard_output) << "\",\n"
+        << "  \"stderr\": \"" << json_escape(standard_error) << "\"\n"
+        << "}\n";
+    return system_status == 0 ? 0 : 1;
+  } catch (const std::exception& error) {
+    fs::remove(stdout_path);
+    fs::remove(stderr_path);
+    std::cerr << error.what() << "\n";
+    return 2;
+  }
+}

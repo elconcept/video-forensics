@@ -53,7 +53,7 @@ def ensure_source(root: Path) -> tuple[Path, str]:
     return destination, commit
 
 
-def build(root: Path, source: Path) -> Path:
+def build(root: Path, source: Path) -> tuple[Path, Path]:
     build_dir = root / "build/h265nal"
     command(
         [
@@ -77,14 +77,31 @@ def build(root: Path, source: Path) -> Path:
     binary = next((path for path in candidates if path.is_file()), None)
     if binary is None:
         raise FileNotFoundError("built h265nal binary not found")
-    return binary.resolve()
+
+    wrapper_source = root / "native/h265nal_json_wrapper"
+    wrapper_build = root / "build/h265nal_json_wrapper"
+    command([
+        "cmake", "-S", str(wrapper_source), "-B", str(wrapper_build),
+        "-DCMAKE_BUILD_TYPE=Release",
+    ])
+    command(["cmake", "--build", str(wrapper_build), "--config", "Release"])
+    wrapper_candidates = [
+        wrapper_build / "bin/h265nal_json_wrapper",
+        wrapper_build / "bin/h265nal_json_wrapper.exe",
+        wrapper_build / "bin/Release/h265nal_json_wrapper.exe",
+        wrapper_build / "Release/h265nal_json_wrapper.exe",
+    ]
+    wrapper = next((item for item in wrapper_candidates if item.is_file()), None)
+    if wrapper is None:
+        raise FileNotFoundError("built h265nal JSON wrapper not found")
+    return binary.resolve(), wrapper.resolve()
 
 
 def bootstrap(repository: Path) -> dict[str, object]:
     repository = repository.expanduser().resolve(strict=True)
     tools = require_build_tools()
     source, commit = ensure_source(repository)
-    binary = build(repository, source)
+    binary, wrapper = build(repository, source)
     lock = {
         "schema_version": 1,
         "upstream": UPSTREAM,
@@ -92,6 +109,7 @@ def bootstrap(repository: Path) -> dict[str, object]:
         "commit": commit,
         "source": str(source),
         "binary": str(binary),
+        "json_wrapper": str(wrapper),
         "tools": tools,
     }
     lock_path = repository / "third_party/h265nal.lock.json"
