@@ -1,0 +1,33 @@
+from __future__ import annotations
+
+from video_forensics.native.static_region_series import build_series, overlap
+
+
+def test_overlap_iou() -> None:
+    left = {"x": 0, "y": 0, "width": 10, "height": 10}
+    right = {"x": 5, "y": 0, "width": 10, "height": 10}
+    assert round(overlap(left, right), 6) == round(50 / 150, 6)
+
+
+def test_builds_consecutive_series() -> None:
+    pairs = [
+        {
+            "previous_frame": "001.png",
+            "current_frame": "002.png",
+            "global_mae": 10.0,
+            "candidate": True,
+            "regions": [{"x": 10, "y": 10, "width": 20, "height": 20, "pixel_count": 400}],
+        },
+        {
+            "previous_frame": "002.png",
+            "current_frame": "003.png",
+            "global_mae": 9.0,
+            "candidate": True,
+            "regions": [{"x": 11, "y": 10, "width": 20, "height": 20, "pixel_count": 400}],
+        },
+    ]
+    series = build_series(pairs, minimum_iou=0.5, minimum_length=2)
+    assert len(series) == 1
+    assert series[0]["length_pairs"] == 2
+    assert series[0]["start_frame"] == "001.png"
+    assert series[0]["end_frame"] == "003.png"
