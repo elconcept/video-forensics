@@ -1,0 +1,31 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from video_forensics import cli
+
+
+def test_report_runs_after_completed_manifest_is_written(
+    tmp_path: Path, monkeypatch
+) -> None:
+    video = tmp_path / "input.mov"
+    output = tmp_path / "result"
+    video.write_bytes(b"video")
+    observed: dict[str, object] = {}
+
+    def fake_report(video_path: Path, output_path: Path) -> dict[str, object]:
+        del video_path
+        manifest = json.loads((output_path / "manifest.json").read_text())
+        observed["status"] = manifest["run"]["status"]
+        observed["completed_at_utc"] = manifest["run"].get("completed_at_utc")
+        return {"stage": "report"}
+
+    monkeypatch.setattr(cli.report, "analyze", fake_report)
+
+    assert cli.run_analysis(video, output, ["report"]) == 0
+    assert observed["status"] == "completed"
+    assert observed["completed_at_utc"]
+
+    final_manifest = json.loads((output / "manifest.json").read_text())
+    assert final_manifest["stages"]["report"] == {"stage": "report"}

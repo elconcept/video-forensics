@@ -96,7 +96,7 @@ def _load_existing_findings(path: Path, source: str) -> list[dict[str, object]]:
 
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, list):
-        raise ValueError(f"expected a JSON list: {path}")
+        raise TypeError(f"expected a JSON list: {path}")
     findings: list[dict[str, object]] = []
     for item in payload:
         if not isinstance(item, dict):
