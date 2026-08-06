@@ -1,0 +1,39 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from video_forensics.native.flatten_imported_runs import discover, flatten
+
+
+def make_source(root: Path, source_id: str, runs: list[str]) -> None:
+    source = root / source_id
+    source.mkdir(parents=True)
+    (source / "import_receipt.json").write_text(
+        json.dumps({"source_id": source_id}), encoding="utf-8"
+    )
+    for run in runs:
+        directory = source / run
+        directory.mkdir()
+        (directory / "manifest.json").write_text("{}", encoding="utf-8")
+
+
+def test_discover_excludes_perceptual_directories(tmp_path: Path) -> None:
+    make_source(tmp_path, "x1", ["software", "software_perceptual"])
+    discovered = discover(tmp_path)
+    assert [(source, path.name) for source, path in discovered] == [("x1", "software")]
+
+
+def test_flatten_copies_runs_with_source_prefix(tmp_path: Path) -> None:
+    imported = tmp_path / "imported"
+    imported.mkdir()
+    make_source(imported, "x1", ["software"])
+    make_source(imported, "gtx960", ["software"])
+    destination = tmp_path / "flat"
+
+    result = flatten(imported, destination, copy=True)
+
+    assert result["run_count"] == 2
+    assert (destination / "x1__software" / "manifest.json").is_file()
+    assert (destination / "gtx960__software" / "manifest.json").is_file()
+    assert (destination / "flatten_manifest.json").is_file()
