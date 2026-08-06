@@ -4,6 +4,11 @@ from dataclasses import asdict, dataclass, replace
 from typing import Any
 
 from video_forensics.tools.hevc_poc import IRAP_TYPES, PPS, SPS, BitReader, rbsp
+from video_forensics.tools.hevc_slice_address import (
+    address_coordinates,
+    derive_ctb_geometry,
+    read_slice_segment_address,
+)
 
 
 @dataclass(frozen=True)
