@@ -79,6 +79,7 @@ class SPS:
     height: int
     log2_max_poc_lsb: int
     separate_colour_plane_flag: int
+    log2_ctb_size: int
 
 
 @dataclass(frozen=True)

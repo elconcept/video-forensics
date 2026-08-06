@@ -7,6 +7,7 @@ from time import monotonic
 
 from video_forensics.manifest import atomic_write_json, utc_now
 from video_forensics.tools.hevc_poc import analyze_poc
+from video_forensics.tools.hevc_slice_segments import parse_segment_sequence
 
 NAL_NAMES = {
     0: "TRAIL_N", 1: "TRAIL_R", 2: "TSA_N", 3: "TSA_R",
@@ -103,6 +104,11 @@ def analyze(video: Path, output_dir: Path) -> dict[str, object]:
     findings = _findings(rows)
     poc_analysis = analyze_poc(rows)
     findings.extend(poc_analysis["findings"])
+    from video_forensics.tools.hevc_poc import PPS, SPS
+    sps_map = {int(item["sps_id"]): SPS(**item) for item in poc_analysis["sps"]}
+    pps_map = {int(item["pps_id"]): PPS(**item) for item in poc_analysis["pps"]}
+    segment_analysis = parse_segment_sequence(rows, pps_map, sps_map)
+    findings.extend(segment_analysis["findings"])
     counts = Counter(str(row["nal_unit_name"]) for row in rows)
     target = output_dir / "hevc_bitstream"
     csv_rows = [{key: value for key, value in row.items() if key != "payload"} for row in rows]
@@ -110,6 +116,8 @@ def analyze(video: Path, output_dir: Path) -> dict[str, object]:
     _write_csv(target / "pictures.csv", poc_analysis["pictures"])
     atomic_write_json(target / "findings.json", findings)
     atomic_write_json(target / "poc_analysis.json", poc_analysis)
+    atomic_write_json(target / "slice_segments.json", segment_analysis)
+    _write_csv(target / "slice_segments.csv", segment_analysis["segments"])
     if poc_analysis["orphan_plan_draft"] is not None:
         atomic_write_json(target / "orphan_plan_draft.json", poc_analysis["orphan_plan_draft"])
     result: dict[str, object] = {
@@ -130,6 +138,9 @@ def analyze(video: Path, output_dir: Path) -> dict[str, object]:
             "picture_count": len(poc_analysis["pictures"]),
             "poc_regression_count": len(poc_analysis["findings"]),
             "slice_parse_error_count": len(poc_analysis["parse_errors"]),
+            "slice_segment_count": segment_analysis["segment_count"],
+            "dependent_slice_segment_count": segment_analysis["dependent_segment_count"],
+            "slice_segment_error_count": len(segment_analysis["errors"]),
         },
         "outputs": {
             "nal_units": "hevc_bitstream/nal_units.csv",
