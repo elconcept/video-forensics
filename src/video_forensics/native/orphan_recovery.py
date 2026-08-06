@@ -1,0 +1,190 @@
+from __future__ import annotations
+
+import argparse
+import csv
+import hashlib
+import json
+import sys
+from datetime import UTC, datetime
+from pathlib import Path
+
+import numpy as np
+from PIL import Image
+
+DEFAULT_SIGMA_THRESHOLD = 8.0
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(8 * 1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def discover_variants(root: Path) -> dict[str, list[Path]]:
+    variants: dict[str, list[Path]] = {}
+    for directory in sorted(path for path in root.iterdir() if path.is_dir()):
+        frames = sorted(
+            path
+            for path in directory.iterdir()
+            if path.suffix.lower() in {".png", ".tif", ".tiff"}
+        )
+        if frames:
+            variants[directory.name] = frames
+    if len(variants) < 2:
+        raise ValueError("at least two decoded reference variants are required")
+    counts = {len(frames) for frames in variants.values()}
+    if len(counts) != 1:
+        raise ValueError(f"variant frame counts differ: {sorted(counts)}")
+    return variants
+
+
+def load_rgb(path: Path) -> np.ndarray:
+    with Image.open(path) as image:
+        return np.asarray(image.convert("RGB"), dtype=np.float32)
+
+
+def validate_geometry(variants: dict[str, list[Path]]) -> tuple[int, int]:
+    geometries: set[tuple[int, int]] = set()
+    for frames in variants.values():
+        with Image.open(frames[0]) as image:
+            geometries.add(image.size)
+    if len(geometries) != 1:
+        raise ValueError(f"variant geometries differ: {sorted(geometries)}")
+    return next(iter(geometries))
+
+
+def recover_frame(
+    frame_paths: list[Path], sigma_threshold: float
+) -> tuple[np.ndarray, np.ndarray, dict[str, float]]:
+    stack = np.stack([load_rgb(path) for path in frame_paths], axis=0)
+    median = np.median(stack, axis=0)
+    sigma = np.std(stack, axis=0)
+    stable = np.max(sigma, axis=2) < sigma_threshold
+    recovered = np.clip(np.rint(median), 0, 255).astype(np.uint8)
+    overlay = recovered.copy()
+    overlay[~stable] = np.array([0, 255, 0], dtype=np.uint8)
+    return recovered, overlay, {
+        "determined_pixel_fraction": float(np.mean(stable)),
+        "undetermined_pixel_fraction": float(np.mean(~stable)),
+        "sigma_mean": float(np.mean(sigma)),
+        "sigma_max": float(np.max(sigma)),
+    }
+
+
+def save_image(path: Path, array: np.ndarray) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(array, mode="RGB").save(path, format="PNG", optimize=False)
+
+
+def run_recovery(
+    variants_root: Path,
+    output: Path,
+    *,
+    sigma_threshold: float = DEFAULT_SIGMA_THRESHOLD,
+) -> dict[str, object]:
+    if sigma_threshold <= 0:
+        raise ValueError("sigma threshold must be positive")
+    variants_root = variants_root.expanduser().resolve(strict=True)
+    if not variants_root.is_dir():
+        raise ValueError(f"variants root is not a directory: {variants_root}")
+    output = output.expanduser().resolve()
+    output.mkdir(parents=True, exist_ok=False)
+
+    variants = discover_variants(variants_root)
+    width, height = validate_geometry(variants)
+    variant_ids = list(variants)
+    frame_count = len(next(iter(variants.values())))
+    rows: list[dict[str, object]] = []
+
+    for index in range(frame_count):
+        frame_paths = [variants[variant_id][index] for variant_id in variant_ids]
+        recovered, overlay, metrics = recover_frame(frame_paths, sigma_threshold)
+        frame_number = index + 1
+        recovered_name = f"median_{frame_number:04d}.png"
+        overlay_name = f"determination_{frame_number:04d}.png"
+        save_image(output / "recovered" / recovered_name, recovered)
+        save_image(output / "determination" / overlay_name, overlay)
+        rows.append(
+            {
+                "frame_number": frame_number,
+                "recovered_file": f"recovered/{recovered_name}",
+                "determination_file": f"determination/{overlay_name}",
+                **{key: round(value, 9) for key, value in metrics.items()},
+            }
+        )
+
+    with (output / "stability.csv").open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+
+    sources = {
+        variant_id: [
+            {
+                "path": str(path),
+                "size_bytes": path.stat().st_size,
+                "sha256": sha256(path),
+            }
+            for path in frames
+        ]
+        for variant_id, frames in variants.items()
+    }
+    result: dict[str, object] = {
+        "schema_version": 1,
+        "module": "orphan_recovery",
+        "created_at_utc": datetime.now(UTC).isoformat(),
+        "parameters": {
+            "sigma_threshold": sigma_threshold,
+            "stability_rule": "maximum RGB channel sigma below threshold",
+            "median_rule": "per-channel median across controlled reference variants",
+        },
+        "geometry": {"width": width, "height": height, "channels": 3},
+        "variant_count": len(variants),
+        "variant_ids": variant_ids,
+        "frame_count": frame_count,
+        "frames": rows,
+        "sources": sources,
+        "interpretation_boundary": (
+            "Pixels marked determined are invariant below the configured threshold across "
+            "the supplied controlled reference variants. Other pixels remain substitute-dependent."
+        ),
+    }
+    (output / "orphan_recovery.json").write_text(
+        json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return result
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="video-forensics-orphan-recovery")
+    parser.add_argument("variants_root", type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--sigma-threshold", type=float, default=DEFAULT_SIGMA_THRESHOLD)
+    args = parser.parse_args()
+    try:
+        result = run_recovery(
+            args.variants_root,
+            args.output,
+            sigma_threshold=args.sigma_threshold,
+        )
+    except (FileNotFoundError, FileExistsError, TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    print(
+        json.dumps(
+            {
+                "variant_count": result["variant_count"],
+                "frame_count": result["frame_count"],
+                "output": str(args.output),
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

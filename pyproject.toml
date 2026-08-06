@@ -9,6 +9,7 @@ description = "Containerized forensic video examination toolkit"
 requires-python = ">=3.12"
 dependencies = [
   "numpy>=2.0,<3",
+  "Pillow>=12,<13",
 ]
 
 [project.optional-dependencies]
@@ -22,6 +23,8 @@ dev = [
 [project.scripts]
 video-forensics = "video_forensics.cli:main"
 video-forensics-host-profile = "video_forensics.native.host_profile:main"
+video-forensics-orphan-recovery = "video_forensics.native.orphan_recovery:main"
+video-forensics-build-orphan-streams = "video_forensics.native.orphan_stream_builder:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
