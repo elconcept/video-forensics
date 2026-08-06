@@ -1,0 +1,67 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from video_forensics.tools.hevc_poc import SPS, BitReader
+
+
+@dataclass(frozen=True)
+class CtbGeometry:
+    ctb_log2_size_y: int
+    ctb_size_y: int
+    pic_width_in_ctbs_y: int
+    pic_height_in_ctbs_y: int
+    pic_size_in_ctbs_y: int
+    address_bit_count: int
+
+
+def ceil_div(numerator: int, denominator: int) -> int:
+    if numerator < 0 or denominator <= 0:
+        raise ValueError("ceil_div expects numerator >= 0 and denominator > 0")
+    return (numerator + denominator - 1) // denominator
+
+
+def ceil_log2(value: int) -> int:
+    if value <= 0:
+        raise ValueError("CeilLog2 input must be positive")
+    return (value - 1).bit_length()
+
+
+def derive_ctb_geometry(sps: SPS) -> CtbGeometry:
+    if sps.width <= 0 or sps.height <= 0:
+        raise ValueError("SPS coded dimensions must be positive")
+    if sps.log2_ctb_size < 3:
+        raise ValueError("invalid SPS CtbLog2SizeY")
+    ctb_size = 1 << sps.log2_ctb_size
+    width_in_ctbs = ceil_div(sps.width, ctb_size)
+    height_in_ctbs = ceil_div(sps.height, ctb_size)
+    picture_size = width_in_ctbs * height_in_ctbs
+    return CtbGeometry(
+        ctb_log2_size_y=sps.log2_ctb_size,
+        ctb_size_y=ctb_size,
+        pic_width_in_ctbs_y=width_in_ctbs,
+        pic_height_in_ctbs_y=height_in_ctbs,
+        pic_size_in_ctbs_y=picture_size,
+        address_bit_count=ceil_log2(picture_size),
+    )
+
+
+def read_slice_segment_address(reader: BitReader, geometry: CtbGeometry) -> int:
+    if geometry.address_bit_count == 0:
+        return 0
+    address = reader.bits(geometry.address_bit_count)
+    if address >= geometry.pic_size_in_ctbs_y:
+        raise ValueError(
+            "slice_segment_address outside PicSizeInCtbsY: "
+            f"{address} >= {geometry.pic_size_in_ctbs_y}"
+        )
+    return address
+
+
+def address_coordinates(address: int, geometry: CtbGeometry) -> tuple[int, int]:
+    if not 0 <= address < geometry.pic_size_in_ctbs_y:
+        raise ValueError("slice_segment_address outside picture")
+    return (
+        address % geometry.pic_width_in_ctbs_y,
+        address // geometry.pic_width_in_ctbs_y,
+    )

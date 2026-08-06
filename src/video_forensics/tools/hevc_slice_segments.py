@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from dataclasses import asdict, dataclass, replace
 from typing import Any
 
@@ -16,6 +15,12 @@ class SliceSegmentHeader:
     pps_id: int
     dependent_slice_segment_flag: int
     slice_segment_address: int
+    slice_segment_ctb_x: int
+    slice_segment_ctb_y: int
+    pic_width_in_ctbs_y: int
+    pic_height_in_ctbs_y: int
+    pic_size_in_ctbs_y: int
+    slice_segment_address_bit_count: int
     inherited_from_nal_number: int | None
     slice_type: int | None
     pic_output_flag: int | None
@@ -25,18 +30,6 @@ class SliceSegmentHeader:
     header_bytes_covered: int
     parser_status: str
 
-
-def ceil_log2(value: int) -> int:
-    if value <= 1:
-        return 0
-    return math.ceil(math.log2(value))
-
-
-def picture_size_in_ctbs(sps: SPS) -> int:
-    ctb_size = 1 << sps.log2_ctb_size
-    width_in_ctbs = math.ceil(sps.width / ctb_size)
-    height_in_ctbs = math.ceil(sps.height / ctb_size)
-    return width_in_ctbs * height_in_ctbs
 
 
 def parse_slice_segment_header(
@@ -54,13 +47,14 @@ def parse_slice_segment_header(
     pps = pps_map[pps_id]
     sps = sps_map[pps.sps_id]
 
+    geometry = derive_ctb_geometry(sps)
     dependent = 0
     address = 0
     if not first:
         if pps.dependent_slice_segments_enabled_flag:
             dependent = reader.bit()
-        address_bits = ceil_log2(picture_size_in_ctbs(sps))
-        address = reader.bits(address_bits) if address_bits else 0
+        address = read_slice_segment_address(reader, geometry)
+    ctb_x, ctb_y = address_coordinates(address, geometry)
 
     if dependent:
         if preceding_independent is None:
@@ -76,6 +70,18 @@ def parse_slice_segment_header(
             pps_id=pps_id,
             dependent_slice_segment_flag=1,
             slice_segment_address=address,
+        slice_segment_ctb_x=ctb_x,
+        slice_segment_ctb_y=ctb_y,
+        pic_width_in_ctbs_y=geometry.pic_width_in_ctbs_y,
+        pic_height_in_ctbs_y=geometry.pic_height_in_ctbs_y,
+        pic_size_in_ctbs_y=geometry.pic_size_in_ctbs_y,
+        slice_segment_address_bit_count=geometry.address_bit_count,
+            slice_segment_ctb_x=ctb_x,
+            slice_segment_ctb_y=ctb_y,
+            pic_width_in_ctbs_y=geometry.pic_width_in_ctbs_y,
+            pic_height_in_ctbs_y=geometry.pic_height_in_ctbs_y,
+            pic_size_in_ctbs_y=geometry.pic_size_in_ctbs_y,
+            slice_segment_address_bit_count=geometry.address_bit_count,
             inherited_from_nal_number=preceding_independent.nal_number,
             header_bits_consumed=reader.position,
             header_bytes_covered=(reader.position + 7) // 8,

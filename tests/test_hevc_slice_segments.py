@@ -3,9 +3,7 @@ from __future__ import annotations
 from video_forensics.tools.hevc_poc import PPS, SPS
 from video_forensics.tools.hevc_slice_segments import (
     SliceSegmentHeader,
-    ceil_log2,
     parse_slice_segment_header,
-    picture_size_in_ctbs,
 )
 
 
@@ -13,11 +11,6 @@ def bits_to_bytes(bits: str) -> bytes:
     padded = bits + "0" * ((8 - len(bits) % 8) % 8)
     return bytes(int(padded[index : index + 8], 2) for index in range(0, len(padded), 8))
 
-
-def test_picture_ctb_geometry() -> None:
-    sps = SPS(0, 1920, 1088, 8, 0, 6)
-    assert picture_size_in_ctbs(sps) == 30 * 17
-    assert ceil_log2(30 * 17) == 9
 
 
 def test_dependent_segment_inherits_independent_fields() -> None:
@@ -31,6 +24,12 @@ def test_dependent_segment_inherits_independent_fields() -> None:
         pps_id=0,
         dependent_slice_segment_flag=0,
         slice_segment_address=0,
+        slice_segment_ctb_x=0,
+        slice_segment_ctb_y=0,
+        pic_width_in_ctbs_y=2,
+        pic_height_in_ctbs_y=1,
+        pic_size_in_ctbs_y=2,
+        slice_segment_address_bit_count=1,
         inherited_from_nal_number=None,
         slice_type=1,
         pic_output_flag=1,

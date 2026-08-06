@@ -1,14 +1,15 @@
-# Step 55: Windows GPU-aware pipeline selection
+# Step 55: exact `slice_segment_address` derivation and validation
 
-The Windows launcher now inventories active display controllers through `Win32_VideoController`, optionally confirms present devices through `Get-PnpDevice`, records driver and PNP identifiers, reads the hardware accelerators exposed by the selected FFmpeg build, and selects every matching decoder profile.
+This step replaces floating-point geometry helpers with exact integer derivation.
 
-Selection rules:
+For each active SPS it derives:
 
-- software profiles always run
-- Intel GPU plus FFmpeg QSV enables Intel QSV
-- Intel GPU plus FFmpeg D3D11VA enables Intel D3D11VA
-- NVIDIA GPU plus FFmpeg CUDA enables NVIDIA CUDA/NVDEC
-- NVIDIA GPU plus FFmpeg D3D11VA enables NVIDIA D3D11VA
-- AMD GPU plus FFmpeg D3D11VA enables an AMD profile when that profile exists
+- `CtbSizeY = 1 << CtbLog2SizeY`
+- `PicWidthInCtbsY = Ceil(pic_width_in_luma_samples / CtbSizeY)`
+- `PicHeightInCtbsY = Ceil(pic_height_in_luma_samples / CtbSizeY)`
+- `PicSizeInCtbsY`
+- fixed address width `CeilLog2(PicSizeInCtbsY)`
 
-The session stores `windows_gpu_inventory.json` and `ffmpeg_hwaccels.json`. Profile selection does not itself prove successful hardware decoding; each selected profile still has to complete and preserve its FFmpeg diagnostics.
+`slice_segment_address` is read as a fixed-width unsigned field only when the segment is not first in the picture. Unused binary code points greater than or equal to `PicSizeInCtbsY` are rejected. The parser also records raster CTB coordinates and complete geometry next to every segment.
+
+The address identifies the starting CTU in raster order, consistent with HEVC decoder interfaces and FFmpeg's distinct `slice_segment_addr` field. citeturn101search269turn101search270turn101search271
