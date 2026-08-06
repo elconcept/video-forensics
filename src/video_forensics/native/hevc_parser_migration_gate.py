@@ -1,0 +1,226 @@
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any
+
+
+@dataclass(frozen=True)
+class Check:
+    check_id: str
+    description: str
+    passed: bool
+    evidence: list[str]
+
+
+def read_json(path: Path) -> dict[str, Any] | None:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def gitlink_commit(root: Path, relative: str) -> str | None:
+    completed = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "--stage", "--", relative],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0 or not completed.stdout.strip():
+        return None
+    fields = completed.stdout.split()
+    return fields[1] if fields and fields[0] == "160000" else None
+
+
+def contains_any(path: Path, needles: tuple[str, ...]) -> bool:
+    if not path.is_file():
+        return False
+    text = path.read_text(encoding="utf-8", errors="replace")
+    return any(needle in text for needle in needles)
+
+
+def collect_checks(root: Path) -> list[Check]:
+    third_party = root / "third_party/h265nal"
+    wrapper_sources = [
+        *root.glob("src/**/*.cc"),
+        *root.glob("src/**/*.cpp"),
+        *root.glob("native/**/*.cc"),
+        *root.glob("native/**/*.cpp"),
+    ]
+    cmake_files = list(root.rglob("CMakeLists.txt"))
+    adapter = root / "src/video_forensics/native/h265nal_adapter.py"
+    pipeline = root / "src/video_forensics/native/h265nal_pipeline.py"
+    legacy_sps = root / "src/video_forensics/tools/hevc_sps.py"
+    legacy_pps = root / "src/video_forensics/tools/hevc_pps.py"
+    launchers = [
+        root / "launchers/run_all_linux.sh",
+        root / "launchers/run_all_macos.sh",
+        root / "launchers/run_all_windows.ps1",
+    ]
+    test_files = list((root / "tests").glob("test_*h265nal*.py"))
+    comparison_files = list((root / "tests").glob("*comparison*.py")) + list(
+        (root / "src").rglob("*comparison*.py")
+    )
+    commit = gitlink_commit(root, "third_party/h265nal")
+
+    return [
+        Check(
+            "H265NAL_PINNED",
+            "third_party/h265nal is a gitlink pinned to a concrete commit",
+            third_party.exists() and commit is not None,
+            [f"gitlink_commit={commit}" if commit else "gitlink not found"],
+        ),
+        Check(
+            "CPP_JSON_WRAPPER",
+            "C++ wrapper emits stable JSON",
+            any(
+                contains_any(path, ("nlohmann::json", "rapidjson", "Json::Value"))
+                for path in wrapper_sources
+            ),
+            [str(path.relative_to(root)) for path in wrapper_sources],
+        ),
+        Check(
+            "CMAKE_BUILD",
+            "wrapper is built through CMake",
+            bool(cmake_files)
+            and any(
+                contains_any(path, ("add_executable", "add_library"))
+                for path in cmake_files
+            ),
+            [str(path.relative_to(root)) for path in cmake_files],
+        ),
+        Check(
+            "LAUNCHER_BOOTSTRAP",
+            "Linux, macOS and Windows launchers bootstrap compiler and CMake",
+            all(
+                contains_any(path, ("cmake", "CMake"))
+                and contains_any(path, ("c++", "g++", "clang", "cl.exe", "Visual Studio"))
+                for path in launchers
+            ),
+            [str(path.relative_to(root)) for path in launchers if path.is_file()],
+        ),
+        Check(
+            "H265NAL_ADAPTER",
+            "Python adapter and end-to-end pipeline are present",
+            adapter.is_file() and pipeline.is_file(),
+            [
+                str(path.relative_to(root))
+                for path in (adapter, pipeline)
+                if path.is_file()
+            ],
+        ),
+        Check(
+            "H265NAL_PRIMARY",
+            "h265nal is explicitly configured as the primary parser backend",
+            contains_any(
+                pipeline,
+                (
+                    'primary_backend = "h265nal"',
+                    '"primary_backend": "h265nal"',
+                    'backend="h265nal"',
+                ),
+            ),
+            [str(pipeline.relative_to(root))] if pipeline.is_file() else [],
+        ),
+        Check(
+            "LEGACY_COMPARISON_ONLY",
+            "legacy SPS/PPS parsers are retained only as comparison backend",
+            legacy_sps.is_file()
+            and legacy_pps.is_file()
+            and contains_any(
+                pipeline,
+                ("legacy_comparison", "comparison_backend", "legacy_backend"),
+            ),
+            [
+                str(path.relative_to(root))
+                for path in (legacy_sps, legacy_pps, pipeline)
+                if path.is_file()
+            ],
+        ),
+        Check(
+            "REFERENCE_BACKEND_COMPARISON",
+            "tests compare h265nal with legacy and FFmpeg on reference material",
+            any(
+                contains_any(path, ("h265nal",))
+                and contains_any(path, ("ffmpeg", "FFmpeg"))
+                and contains_any(path, ("legacy", "hevc_sps", "hevc_pps"))
+                for path in [*test_files, *comparison_files]
+            ),
+            [str(path.relative_to(root)) for path in [*test_files, *comparison_files]],
+        ),
+        Check(
+            "HIGH_WEIGHT_CORROBORATION",
+            "high-severity conclusions require an independent control backend",
+            any(
+                contains_any(path, ("high", "severity"))
+                and contains_any(path, ("ffmpeg", "gstreamer", "corroborat"))
+                for path in (root / "src").rglob("*.py")
+            ),
+            [],
+        ),
+        Check(
+            "LEGACY_REMOVAL_READY",
+            "legacy parser removal gate has passing comparison coverage",
+            not legacy_sps.exists() and not legacy_pps.exists(),
+            [
+                str(path.relative_to(root))
+                for path in (legacy_sps, legacy_pps)
+                if path.exists()
+            ],
+        ),
+    ]
+
+
+def audit(root: Path, output: Path) -> dict[str, object]:
+    root = root.expanduser().resolve(strict=True)
+    checks = collect_checks(root)
+    result: dict[str, object] = {
+        "schema_version": 1,
+        "module": "hevc_parser_migration_gate",
+        "repository": str(root),
+        "passed": all(item.passed for item in checks),
+        "passed_count": sum(item.passed for item in checks),
+        "total_count": len(checks),
+        "checks": [asdict(item) for item in checks],
+        "policy": {
+            "primary_parser": "h265nal",
+            "control_parser": "FFmpeg or GStreamer",
+            "legacy_parser": "comparison only until removal gate passes",
+            "high_weight_rule": "no high-weight conclusion from one parser alone",
+        },
+    }
+    output = output.expanduser().resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return result
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="video-forensics-hevc-migration-gate")
+    parser.add_argument("--repository", type=Path, default=Path("."))
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("work/results/hevc_parser_migration_gate.json"),
+    )
+    args = parser.parse_args()
+    try:
+        result = audit(args.repository, args.output)
+    except (FileNotFoundError, OSError, TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result["passed"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
