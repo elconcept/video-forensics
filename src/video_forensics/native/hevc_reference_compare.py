@@ -102,7 +102,8 @@ def run(
             "legacy_semantic_agreement": semantic["legacy_semantic_agreement"],
             "ready_for_legacy_removal": bool(trace["success"])
             and legacy_json is not None
-            and bool(semantic["legacy_semantic_agreement"]),
+            and bool(semantic["legacy_semantic_agreement"])
+            and bool(semantic["rps_comparison_complete"]),
         },
     }
     (output / "reference_comparison.json").write_text(

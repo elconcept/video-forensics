@@ -60,6 +60,36 @@ def export_legacy(annex_b: Path, output: Path) -> dict[str, Any]:
             if isinstance(values, list):
                 slices = [value for value in values if isinstance(value, dict)]
                 break
+    sps_by_id = {
+        int(item["fields"]["sps_id"]): item["fields"]
+        for item in sps
+        if isinstance(item.get("fields"), dict)
+        and item["fields"].get("sps_id") is not None
+    }
+    pps_to_sps = {
+        int(item["fields"]["pps_id"]): int(item["fields"]["sps_id"])
+        for item in pps
+        if isinstance(item.get("fields"), dict)
+        and item["fields"].get("pps_id") is not None
+        and item["fields"].get("sps_id") is not None
+    }
+    enriched_slices: list[dict[str, Any]] = []
+    for item in slices:
+        enriched = dict(item)
+        pps_id = enriched.get("pps_id")
+        if isinstance(pps_id, int) and pps_id in pps_to_sps:
+            source_sps = sps_by_id.get(pps_to_sps[pps_id], {})
+            rps_sets = source_sps.get("short_term_ref_pic_sets", [])
+            if isinstance(rps_sets, list) and rps_sets:
+                selected = rps_sets[0]
+                if isinstance(selected, dict):
+                    enriched["short_term_ref_pic_set_sps_flag"] = 1
+                    for key in ("num_negative_pics", "num_positive_pics"):
+                        if key in selected:
+                            enriched[key] = selected[key]
+        enriched_slices.append(enriched)
+    slices = enriched_slices
+
     records = [
         *({"nal_number": item["nal_number"], "nal_unit_type": item["nal_unit_type"], "kind": "sps", "fields": item["fields"]} for item in sps),
         *({"nal_number": item["nal_number"], "nal_unit_type": item["nal_unit_type"], "kind": "pps", "fields": item["fields"]} for item in pps),
