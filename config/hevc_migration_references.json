@@ -1,0 +1,22 @@
+{
+  "cases": [
+    {
+      "case_id": "1796-main",
+      "comparison": "/home/tom/projects/video-forensics/work/results/1796/20260807T023120Z/hevc_parser_migration/reference_comparison/reference_comparison.json",
+      "enrollment_evidence": {
+        "actual_comparable_records": 252,
+        "actual_field_mismatches": 0,
+        "actual_rps_comparison_complete": true,
+        "ffmpeg_control_passed": true,
+        "legacy_comparison_requested": true
+      },
+      "max_field_mismatches": 0,
+      "minimum_comparable_records": 1,
+      "require_complete_rps": true,
+      "require_legacy_agreement": true,
+      "source": "/home/tom/projects/video-forensics/work/evidence/1796.mp4",
+      "source_sha256": "8560a2d703c1025ba7c5b4deef5e53f89b9ee0c1026cae67b4145e34d137a903"
+    }
+  ],
+  "schema_version": 1
+}

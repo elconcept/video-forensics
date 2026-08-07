@@ -1,0 +1,19 @@
+{
+  "gate": "config/hevc_migration_evidence/regression_gate.json",
+  "independent_control": "FFmpeg trace_headers",
+  "legacy_removed": true,
+  "module": "finalize_hevc_parser_migration",
+  "primary_backend": "h265nal",
+  "reference_case_count": 1,
+  "removed": [
+    "src/video_forensics/native/hevc_legacy_export.py",
+    "src/video_forensics/tools/hevc_poc.py",
+    "src/video_forensics/tools/hevc_pps.py",
+    "src/video_forensics/tools/hevc_sps.py",
+    "tests/test_hevc_poc.py",
+    "tests/test_hevc_pps.py",
+    "tests/test_hevc_sps.py"
+  ],
+  "schema_version": 1,
+  "status": "completed"
+}

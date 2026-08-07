@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from video_forensics.native.hevc_legacy_export import export_legacy
 from video_forensics.native.hevc_parser_authority import run as run_authority
 from video_forensics.native.hevc_reference_compare import run as run_reference_compare
 
@@ -128,9 +127,6 @@ def run_stage(
     else:
         annex_b = output / "source.h265"
         extraction = extract_annex_b(video, annex_b, ffmpeg, timeout)
-        legacy_output = output / "legacy_comparison.json"
-        export_legacy(annex_b, legacy_output)
-        effective_legacy_json = legacy_json or legacy_output
         authority_root = output / "parser_authority"
         authority = run_authority(
             annex_b,
@@ -139,7 +135,7 @@ def run_stage(
             wrapper=wrapper,
             h265nal=h265nal,
             ffprobe=str(ffprobe),
-            legacy_json=effective_legacy_json,
+            legacy_json=None,
             timeout=timeout,
         )
         reference = run_reference_compare(
@@ -150,7 +146,7 @@ def run_stage(
             ffprobe=str(ffprobe),
             wrapper=wrapper,
             h265nal=h265nal,
-            legacy_json=effective_legacy_json,
+            legacy_json=None,
             timeout=timeout,
         )
         result = {
@@ -164,7 +160,6 @@ def run_stage(
             "primary_backend": "h265nal",
             "control_backend": "ffprobe",
             "legacy_backend_role": "comparison_only",
-            "legacy_comparison_manifest": str(effective_legacy_json),
             "authoritative_for_high_weight": authority["comparison"][
                 "authoritative_for_high_weight"
             ],
