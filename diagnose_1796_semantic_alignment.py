@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+root = Path("work/results/1796")
+runs = sorted(path for path in root.iterdir() if path.is_dir() and path.name[:1].isdigit())
+run = runs[-1]
+base = run / "hevc_parser_migration"
+primary = json.loads((base / "reference_comparison/authority/h265nal_normalized.json").read_text())
+legacy = json.loads((base / "legacy_comparison.json").read_text())
+comparison = json.loads((base / "reference_comparison/reference_comparison.json").read_text())
+
+primary_rows = primary.get("nal_units", [])
+legacy_rows = legacy.get("nal_units", [])
+sequence = []
+for index in range(max(len(primary_rows), len(legacy_rows))):
+    left = primary_rows[index] if index < len(primary_rows) else None
+    right = legacy_rows[index] if index < len(legacy_rows) else None
+    sequence.append({
+        "index": index,
+        "primary_nal_number": left.get("nal_number") if isinstance(left, dict) else None,
+        "primary_type": left.get("nal_unit_type") if isinstance(left, dict) else None,
+        "legacy_nal_number": right.get("nal_number") if isinstance(right, dict) else None,
+        "legacy_type": right.get("nal_unit_type") if isinstance(right, dict) else None,
+        "type_match": (
+            isinstance(left, dict)
+            and isinstance(right, dict)
+            and left.get("nal_unit_type") == right.get("nal_unit_type")
+        ),
+    })
+
+report = {
+    "run": str(run),
+    "primary_nal_count": len(primary_rows),
+    "legacy_nal_count": len(legacy_rows),
+    "nal_type_mismatch_count": sum(not row["type_match"] for row in sequence),
+    "first_nal_sequence_rows": sequence[:40],
+    "legacy_poc_keys": sorted(legacy.get("poc", {}).keys()) if isinstance(legacy.get("poc"), dict) else [],
+    "first_legacy_slices": legacy.get("slices", [])[:5],
+    "first_primary_slice_payloads": [
+        {
+            "nal_number": row.get("nal_number"),
+            "nal_unit_type": row.get("nal_unit_type"),
+            "payload": row.get("payload"),
+        }
+        for row in primary_rows
+        if isinstance(row, dict) and isinstance(row.get("nal_unit_type"), int) and row["nal_unit_type"] < 32
+    ][:5],
+    "semantic_summary": {
+        key: comparison.get("semantic", {}).get(key)
+        for key in (
+            "primary_record_count",
+            "legacy_record_count",
+            "comparable_record_count",
+            "field_mismatch_count",
+            "legacy_semantic_agreement",
+            "rps_applicability",
+        )
+    },
+}
+output = base / "semantic_alignment_diagnosis.json"
+output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+print(json.dumps(report, ensure_ascii=False, indent=2))

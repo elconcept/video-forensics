@@ -1,0 +1,394 @@
+RUN EXISTS: True
+
+=== JSON RESULTS ===
+
+=== SOURCE CONTEXT ===
+
+FILE: /home/tom/projects/video-forensics/diagnose_hevc_reference_zero_records.py
+        1: from __future__ import annotations
+        2: 
+        3: import json
+        4: from pathlib import Path
+        5: 
+        6: ROOT = Path.cwd()
+        7: RUN = ROOT / "work/results/hevc-migration-reference-1796-10"
+        8: OUTPUT = ROOT / "hevc_reference_zero_records_diagnosis.txt"
+        9: SKIP = {".git", ".venv", "build", "dist", "__pycache__"}
+       10: TERMS = (
+>>>    11:     "comparable_record_count",
+       12:     "rps_comparison_complete",
+       13:     "migration_acceptance",
+       14:     "legacy_comparison_requested",
+       15: )
+       16: 
+       17: 
+       18: def inspect_json(path: Path) -> list[str]:
+       19:     try:
+       20:         value = json.loads(path.read_text(encoding="utf-8"))
+       21:     except Exception as exc:
+       22:         return [f"JSON ERROR: {exc}"]
+       23:     found: list[str] = []
+       24: 
+       25:     def walk(node: object, prefix: str = "$") -> None:
+       26:         if isinstance(node, dict):
+
+FILE: /home/tom/projects/video-forensics/src/video_forensics/native/hevc_migration_regression.py
+       34:             raise TypeError(f"case {index} must be an object")
+       35:         for required in ("case_id", "source", "comparison"):
+       36:             if required not in case:
+       37:                 raise KeyError(f"case {index} has no {required}")
+       38:         normalized.append(case)
+       39:     return normalized
+       40: 
+       41: 
+       42: def validate_case(case: dict[str, Any], base: Path) -> dict[str, Any]:
+       43:     source = (base / str(case["source"])).resolve(strict=True)
+       44:     comparison_path = (base / str(case["comparison"])).resolve(strict=True)
+       45:     comparison = read_object(comparison_path)
+>>>    46:     acceptance = comparison.get("migration_acceptance")
+       47:     semantic = comparison.get("semantic")
+       48:     if not isinstance(acceptance, dict):
+       49:         raise TypeError(f"comparison has no migration_acceptance: {comparison_path}")
+       50:     if not isinstance(semantic, dict):
+       51:         raise TypeError(f"comparison has no semantic result: {comparison_path}")
+       52: 
+       53:     expected_sha = case.get("source_sha256")
+       54:     actual_sha = sha256(source)
+       55:     source_matches = expected_sha is None or str(expected_sha).lower() == actual_sha
+       56:     max_mismatches = int(case.get("max_field_mismatches", 0))
+       57:     minimum_records = int(case.get("minimum_comparable_records", 1))
+       58:     require_rps = bool(case.get("require_complete_rps", False))
+       59:     legacy_required = bool(case.get("require_legacy_agreement", True))
+       60: 
+       61:     checks = [
+       69:             "id": "FFMPEG_CONTROL",
+       70:             "passed": bool(acceptance.get("ffmpeg_control_passed")),
+       71:         },
+       72:         {
+       73:             "id": "FIELD_MISMATCH_LIMIT",
+       74:             "passed": int(semantic.get("field_mismatch_count", -1))
+       75:             <= max_mismatches,
+       76:             "actual": semantic.get("field_mismatch_count"),
+       77:             "maximum": max_mismatches,
+       78:         },
+       79:         {
+       80:             "id": "COMPARABLE_RECORD_MINIMUM",
+>>>    81:             "passed": int(semantic.get("comparable_record_count", 0))
+       82:             >= minimum_records,
+       83:             "actual": semantic.get("comparable_record_count"),
+       84:             "minimum": minimum_records,
+       85:         },
+       86:     ]
+       87:     if legacy_required:
+       88:         checks.append(
+       89:             {
+       90:                 "id": "LEGACY_SEMANTIC_AGREEMENT",
+       91:                 "passed": bool(semantic.get("legacy_semantic_agreement")),
+       92:             }
+       93:         )
+       94:     if require_rps:
+       95:         checks.append(
+       96:             {
+       97:                 "id": "RPS_COMPARISON_COMPLETE",
+>>>    98:                 "passed": bool(semantic.get("rps_comparison_complete")),
+       99:             }
+      100:         )
+      101:     return {
+      102:         "case_id": str(case["case_id"]),
+      103:         "source": str(source),
+      104:         "source_sha256": actual_sha,
+      105:         "comparison": str(comparison_path),
+      106:         "passed": all(check["passed"] for check in checks),
+      107:         "checks": checks,
+      108:     }
+      109: 
+      110: 
+
+FILE: /home/tom/projects/video-forensics/src/video_forensics/native/hevc_migration_stage.py
+      156:             "input": str(video),
+      157:             "codec_name": codec,
+      158:             "annex_b": str(annex_b),
+      159:             "extraction": extraction,
+      160:             "primary_backend": "h265nal",
+      161:             "control_backend": "ffprobe",
+      162:             "legacy_backend_role": "comparison_only",
+      163:             "authoritative_for_high_weight": authority["comparison"][
+      164:                 "authoritative_for_high_weight"
+      165:             ],
+      166:             "authority_manifest": str(authority_root / "parser_authority.json"),
+      167:             "reference_comparison_manifest": str(output / "reference_comparison" / "reference_comparison.json"),
+>>>   168:             "legacy_removal_ready": reference["migration_acceptance"]["ready_for_legacy_removal"],
+      169:         }
+      170:     (output / "manifest.json").write_text(
+      171:         json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+      172:         encoding="utf-8",
+      173:     )
+      174:     return result
+      175: 
+      176: 
+      177: def main() -> int:
+      178:     parser = argparse.ArgumentParser(prog="video-forensics-hevc-migration-stage")
+      179:     parser.add_argument("video", type=Path)
+      180:     parser.add_argument("--output", required=True, type=Path)
+
+FILE: /home/tom/projects/video-forensics/src/video_forensics/native/hevc_reference_compare.py
+       87:             encoding="utf-8", errors="replace"
+       88:         ),
+       89:     )
+       90:     result = {
+       91:         "schema_version": 1,
+       92:         "module": "hevc_reference_compare",
+       93:         "input": str(annex_b),
+       94:         "primary_backend": "h265nal",
+       95:         "legacy_backend_role": "comparison_only",
+       96:         "control_backend": "ffmpeg_trace_headers",
+       97:         "trace": trace,
+       98:         "semantic": semantic,
+>>>    99:         "migration_acceptance": {
+      100:             "ffmpeg_control_passed": bool(trace["success"]),
+      101:             "legacy_comparison_requested": legacy_json is not None,
+      102:             "legacy_semantic_agreement": semantic["legacy_semantic_agreement"],
+      103:             "ready_for_legacy_removal": bool(trace["success"])
+      104:             and legacy_json is not None
+      105:             and bool(semantic["legacy_semantic_agreement"]),
+      106:         },
+      107:     }
+      108:     (output / "reference_comparison.json").write_text(
+      109:         json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+      110:         encoding="utf-8",
+      111:     )
+      112:     return result
+      113: 
+      138:         )
+      139:     except (
+      140:         FileNotFoundError,
+      141:         FileExistsError,
+      142:         json.JSONDecodeError,
+      143:         OSError,
+      144:         RuntimeError,
+      145:         TypeError,
+      146:         ValueError,
+      147:     ) as exc:
+      148:         print(f"ERROR: {exc}", file=sys.stderr)
+      149:         return 2
+>>>   150:     print(json.dumps(result["migration_acceptance"], indent=2))
+      151:     return 0 if result["migration_acceptance"]["ffmpeg_control_passed"] else 1
+      152: 
+      153: 
+      154: if __name__ == "__main__":
+      155:     raise SystemExit(main())
+
+FILE: /home/tom/projects/video-forensics/src/video_forensics/native/hevc_reference_enroll.py
+       16:     return digest.hexdigest()
+       17: 
+       18: 
+       19: def read_object(path: Path) -> dict[str, Any]:
+       20:     value = json.loads(path.read_text(encoding="utf-8"))
+       21:     if not isinstance(value, dict):
+       22:         raise TypeError(f"expected JSON object: {path}")
+       23:     return value
+       24: 
+       25: 
+       26: def validate_comparison(path: Path) -> dict[str, Any]:
+       27:     comparison = read_object(path)
+>>>    28:     acceptance = comparison.get("migration_acceptance")
+       29:     semantic = comparison.get("semantic")
+       30:     if not isinstance(acceptance, dict):
+       31:         raise TypeError("comparison has no migration_acceptance object")
+       32:     if not isinstance(semantic, dict):
+       33:         raise TypeError("comparison has no semantic object")
+       34:     if not acceptance.get("ffmpeg_control_passed"):
+       35:         raise ValueError("FFmpeg control did not pass")
+       36:     return comparison
+       37: 
+       38: 
+       39: def relative_or_absolute(path: Path, base: Path) -> str:
+       40:     try:
+       41:         return str(path.relative_to(base))
+       42:     except ValueError:
+       43:         return str(path)
+       47:     config: Path,
+       48:     *,
+       49:     case_id: str,
+       50:     source: Path,
+       51:     comparison: Path,
+       52:     require_complete_rps: bool,
+       53:     minimum_comparable_records: int,
+       54: ) -> dict[str, Any]:
+       55:     source = source.expanduser().resolve(strict=True)
+       56:     comparison = comparison.expanduser().resolve(strict=True)
+       57:     parsed = validate_comparison(comparison)
+       58:     semantic = parsed["semantic"]
+>>>    59:     actual_records = int(semantic.get("comparable_record_count", 0))
+       60:     if actual_records < minimum_comparable_records:
+       61:         raise ValueError(
+       62:             f"comparison has only {actual_records} comparable records; "
+       63:             f"minimum is {minimum_comparable_records}"
+       64:         )
+       65:     if require_complete_rps and not semantic.get("rps_comparison_complete"):
+       66:         raise ValueError("comparison does not have complete RPS coverage")
+       67: 
+       68:     config = config.expanduser().resolve()
+       69:     config.parent.mkdir(parents=True, exist_ok=True)
+       70:     if config.exists():
+       71:         payload = read_object(config)
+       72:     else:
+       73:         payload = {"schema_version": 1, "cases": []}
+       74:     cases = payload.get("cases")
+       75:     if not isinstance(cases, list):
+       76:         raise TypeError("configuration cases must be a list")
+       77:     if any(isinstance(item, dict) and item.get("case_id") == case_id for item in cases):
+       81:     case = {
+       82:         "case_id": case_id,
+       83:         "source": relative_or_absolute(source, base),
+       84:         "source_sha256": sha256(source),
+       85:         "comparison": relative_or_absolute(comparison, base),
+       86:         "max_field_mismatches": 0,
+       87:         "minimum_comparable_records": minimum_comparable_records,
+       88:         "require_legacy_agreement": True,
+       89:         "require_complete_rps": require_complete_rps,
+       90:         "enrollment_evidence": {
+       91:             "actual_comparable_records": actual_records,
+       92:             "actual_field_mismatches": semantic.get("field_mismatch_count"),
+>>>    93:             "actual_rps_comparison_complete": semantic.get(
+       94:                 "rps_comparison_complete"
+       95:             ),
+       96:             "ffmpeg_control_passed": True,
+       97:             "legacy_comparison_requested": True,
+       98:         },
+       99:     }
+      100:     cases.append(case)
+      101:     payload["cases"] = cases
+      102:     config.write_text(
+      103:         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+      104:         encoding="utf-8",
+      105:     )
+      106:     return case
+      107: 
+      108: 
+      109: def main() -> int:
+
+FILE: /home/tom/projects/video-forensics/src/video_forensics/native/hevc_semantic_compare.py
+      188:         and mismatch_count == 0
+      189:         and len(primary_items) == len(legacy_items)
+      190:     )
+      191:     ffmpeg_control_available = bool(ffmpeg_fields)
+      192:     return {
+      193:         "schema_version": 1,
+      194:         "module": "hevc_semantic_compare",
+      195:         "primary_backend": "h265nal",
+      196:         "legacy_backend_role": "comparison_only",
+      197:         "control_backend": "ffmpeg_trace_headers",
+      198:         "primary_record_count": len(primary_items),
+      199:         "legacy_record_count": len(legacy_items),
+>>>   200:         "comparable_record_count": comparable_count,
+      201:         "field_mismatch_count": mismatch_count,
+      202:         "legacy_semantic_agreement": legacy_agreement,
+      203:         "canonical_field_coverage": coverage,
+      204:         "rps_comparison_complete": (
+      205:             coverage["short_term_rps"]["coverage_fraction"] == 1.0
+      206:             and coverage["long_term_rps"]["coverage_fraction"] == 1.0
+      207:         ),
+      208:         "ffmpeg_control_available": ffmpeg_control_available,
+      209:         "authoritative_for_high_weight": ffmpeg_control_available,
+      210:         "records": record_comparisons,
+      211:         "ffmpeg_fields": ffmpeg_fields,
+      212:     }
+      213: 
+      214: 
+      215: def main() -> int:
+      216:     parser = argparse.ArgumentParser(prog="video-forensics-hevc-semantic-compare")
+
+FILE: /home/tom/projects/video-forensics/tests/test_hevc_migration_regression.py
+        6: 
+        7: from video_forensics.native.hevc_migration_regression import evaluate
+        8: 
+        9: 
+       10: def test_all_reference_checks_must_pass(tmp_path: Path) -> None:
+       11:     source = tmp_path / "reference.h265"
+       12:     source.write_bytes(b"reference")
+       13:     digest = hashlib.sha256(b"reference").hexdigest()
+       14:     comparison = tmp_path / "comparison.json"
+       15:     comparison.write_text(
+       16:         json.dumps(
+       17:             {
+>>>    18:                 "migration_acceptance": {"ffmpeg_control_passed": True},
+       19:                 "semantic": {
+       20:                     "field_mismatch_count": 0,
+       21:                     "comparable_record_count": 4,
+       22:                     "legacy_semantic_agreement": True,
+       23:                     "rps_comparison_complete": True,
+       24:                 },
+       25:             }
+       26:         ),
+       27:         encoding="utf-8",
+       28:     )
+       29:     config = tmp_path / "config.json"
+       30:     config.write_text(
+       31:         json.dumps(
+       32:             {
+       33:                 "cases": [
+       34:                     {
+       35:                         "case_id": "main",
+       49:     result = evaluate(config, tmp_path / "result.json")
+       50:     assert result["passed"] is True
+       51:     assert result["legacy_removal_ready"] is True
+       52: 
+       53: 
+       54: def test_failed_control_blocks_legacy_removal(tmp_path: Path) -> None:
+       55:     source = tmp_path / "reference.h265"
+       56:     source.write_bytes(b"reference")
+       57:     comparison = tmp_path / "comparison.json"
+       58:     comparison.write_text(
+       59:         json.dumps(
+       60:             {
+>>>    61:                 "migration_acceptance": {"ffmpeg_control_passed": False},
+       62:                 "semantic": {
+       63:                     "field_mismatch_count": 0,
+       64:                     "comparable_record_count": 1,
+       65:                     "legacy_semantic_agreement": True,
+       66:                 },
+       67:             }
+       68:         ),
+       69:         encoding="utf-8",
+       70:     )
+       71:     config = tmp_path / "config.json"
+       72:     config.write_text(
+       73:         json.dumps(
+       74:             {
+       75:                 "cases": [
+       76:                     {
+
+FILE: /home/tom/projects/video-forensics/tests/test_hevc_reference_enroll.py
+        4: import json
+        5: from pathlib import Path
+        6: 
+        7: import pytest
+        8: 
+        9: from video_forensics.native.hevc_reference_enroll import enroll
+       10: 
+       11: 
+       12: def comparison(path: Path, *, rps: bool = True, legacy: bool = True) -> None:
+       13:     path.write_text(
+       14:         json.dumps(
+       15:             {
+>>>    16:                 "migration_acceptance": {
+       17:                     "ffmpeg_control_passed": True,
+       18:                     "legacy_comparison_requested": legacy,
+       19:                 },
+       20:                 "semantic": {
+       21:                     "comparable_record_count": 7,
+       22:                     "field_mismatch_count": 0,
+       23:                     "rps_comparison_complete": rps,
+       24:                 },
+       25:             }
+       26:         ),
+       27:         encoding="utf-8",
+       28:     )
+       29: 
+       30: 
+       31: def test_enrolls_only_verified_real_result(tmp_path: Path) -> None:
+       32:     source = tmp_path / "reference.h265"
+       33:     source.write_bytes(b"reference")
+       34:     result = tmp_path / "comparison.json"
+       35:     comparison(result)

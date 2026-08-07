@@ -1,0 +1,14 @@
+{
+  "binary": "/home/tom/projects/video-forensics/build/h265nal/tools/h265nal",
+  "commit": "e5f8a3b88f35cc6da564960f5cc72720586cac37",
+  "json_wrapper": "/home/tom/projects/video-forensics/build/h265nal_json_wrapper/bin/h265nal_json_wrapper",
+  "requested_ref": "e5f8a3b88f35cc6da564960f5cc72720586cac37",
+  "schema_version": 1,
+  "source": "/home/tom/projects/video-forensics/third_party/h265nal",
+  "tools": {
+    "cmake": "/usr/bin/cmake",
+    "compiler": "/usr/bin/c++",
+    "git": "/usr/bin/git"
+  },
+  "upstream": "https://github.com/chemag/h265nal.git"
+}

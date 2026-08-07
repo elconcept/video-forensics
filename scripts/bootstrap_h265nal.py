@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 UPSTREAM = "https://github.com/chemag/h265nal.git"
-PINNED_REF = "e5f8a3b"
+PINNED_REF = "e5f8a3b88f35cc6da564960f5cc72720586cac37"
 
 
 def command(argv: list[str], cwd: Path | None = None) -> str:

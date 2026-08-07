@@ -150,7 +150,7 @@ fi
     first=0
   done
   printf ']\n}\n'
-} > "$SESSION_DIR/linux_gpu_inventory.json"
+} > "$RESULTS_DIR/linux_gpu_inventory_${SESSION}.json"
 
 printf 'Wykryte backendy GPU: VAAPI=%s QSV=%s CUDA/NVDEC=%s\n' \
   "$VAAPI_WORKS" "$QSV_WORKS" "$CUDA_WORKS"

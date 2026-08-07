@@ -1,0 +1,6 @@
+{
+  "binary": "/home/tom/projects/video-forensics/.local/h265nal/h265nal",
+  "repository": "https://github.com/chemag/h265nal.git",
+  "requested_revision": "e5f8a3b",
+  "resolved_revision": "e5f8a3b88f35cc6da564960f5cc72720586cac37"
+}

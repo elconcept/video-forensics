@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from video_forensics.native.hevc_semantic_fields import (
+    CATEGORIES,
+    base_key,
     canonicalize,
     category_coverage,
 )
@@ -111,21 +113,47 @@ def parse_ffmpeg_trace(text: str) -> dict[str, list[int]]:
     return fields
 
 
+def record_key(record: dict[str, Any]) -> tuple[int, str]:
+    number = record.get("nal_number")
+    if not isinstance(number, int):
+        raise TypeError("semantic record has no integer nal_number")
+    return number, str(record.get("kind", ""))
+
+
 def compare_fields(
     primary: list[dict[str, Any]], legacy: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
+    primary_map = {record_key(item): item for item in primary}
+    legacy_map = {record_key(item): item for item in legacy}
     comparisons: list[dict[str, Any]] = []
-    for index, left in enumerate(primary):
-        if index >= len(legacy):
+    for key in sorted(set(primary_map) | set(legacy_map)):
+        left = primary_map.get(key)
+        right = legacy_map.get(key)
+        nal_number, kind = key
+        if left is None:
             comparisons.append(
                 {
-                    "record_index": index,
-                    "kind": left["kind"],
-                    "status": "missing_legacy_record",
+                    "nal_number": nal_number,
+                    "kind": kind,
+                    "status": "missing_primary_record",
+                    "shared_field_count": 0,
+                    "mismatch_count": 0,
+                    "mismatches": [],
                 }
             )
             continue
-        right = legacy[index]
+        if right is None:
+            comparisons.append(
+                {
+                    "nal_number": nal_number,
+                    "kind": kind,
+                    "status": "missing_legacy_record",
+                    "shared_field_count": 0,
+                    "mismatch_count": 0,
+                    "mismatches": [],
+                }
+            )
+            continue
         left_fields = left.get("fields", {})
         right_fields = right.get("fields", {})
         shared = sorted(set(left_fields) & set(right_fields))
@@ -140,10 +168,9 @@ def compare_fields(
         ]
         comparisons.append(
             {
-                "record_index": index,
-                "kind": left["kind"],
-                "primary_nal_number": left.get("nal_number"),
-                "legacy_nal_number": right.get("nal_number"),
+                "nal_number": nal_number,
+                "kind": kind,
+                "shared_fields": shared,
                 "shared_field_count": len(shared),
                 "mismatch_count": len(mismatches),
                 "mismatches": mismatches,
@@ -177,18 +204,42 @@ def compare(
         for field in [mismatch["field"]]
     }
     for item in record_comparisons:
-        if item.get("shared_field_count", 0):
-            left = primary_items[int(item["record_index"])]["fields"]
-            right = legacy_items[int(item["record_index"])]["fields"]
-            shared_keys.update(set(left) & set(right))
+        shared_keys.update(item.get("shared_fields", []))
     coverage = category_coverage(shared_keys)
     legacy_agreement = (
         legacy is not None
         and comparable_count > 0
         and mismatch_count == 0
-        and len(primary_items) == len(legacy_items)
+        and not any(
+            item["status"] in {"missing_primary_record", "missing_legacy_record"}
+            for item in record_comparisons
+            if item["kind"] != "vps"
+        )
     )
     ffmpeg_control_available = bool(ffmpeg_fields)
+    rps_bases = CATEGORIES["short_term_rps"] | CATEGORIES["long_term_rps"]
+    primary_rps_keys = {
+        key
+        for item in primary_items
+        for key in item.get("fields", {})
+        if base_key(key) in rps_bases
+    }
+    legacy_rps_keys = {
+        key
+        for item in legacy_items
+        for key in item.get("fields", {})
+        if base_key(key) in rps_bases
+    }
+    applicable_rps_keys = primary_rps_keys | legacy_rps_keys
+    shared_rps_keys = primary_rps_keys & legacy_rps_keys
+    missing_primary_rps = sorted(legacy_rps_keys - primary_rps_keys)
+    missing_legacy_rps = sorted(primary_rps_keys - legacy_rps_keys)
+    rps_comparison_complete = (
+        bool(applicable_rps_keys)
+        and not missing_primary_rps
+        and not missing_legacy_rps
+    )
+
     return {
         "schema_version": 1,
         "module": "hevc_semantic_compare",
@@ -201,10 +252,18 @@ def compare(
         "field_mismatch_count": mismatch_count,
         "legacy_semantic_agreement": legacy_agreement,
         "canonical_field_coverage": coverage,
-        "rps_comparison_complete": (
-            coverage["short_term_rps"]["coverage_fraction"] == 1.0
-            and coverage["long_term_rps"]["coverage_fraction"] == 1.0
-        ),
+        "rps_comparison_complete": rps_comparison_complete,
+        "rps_applicability": {
+            "applicable_field_count": len(applicable_rps_keys),
+            "shared_field_count": len(shared_rps_keys),
+            "applicable_fields": sorted(applicable_rps_keys),
+            "missing_in_primary": missing_primary_rps,
+            "missing_in_legacy": missing_legacy_rps,
+            "rule": (
+                "Complete means every RPS field applicable to this stream is "
+                "present in both backends. Conditionally absent syntax is not required."
+            ),
+        },
         "ffmpeg_control_available": ffmpeg_control_available,
         "authoritative_for_high_weight": ffmpeg_control_available,
         "records": record_comparisons,

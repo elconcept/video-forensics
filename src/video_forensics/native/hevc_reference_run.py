@@ -9,6 +9,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from video_forensics.native.hevc_migration_regression import evaluate
+from video_forensics.native.hevc_reference_enroll import enroll
+
 
 def resolve_program(explicit: str | None, name: str) -> str:
     candidate = explicit or shutil.which(name)
@@ -76,42 +79,21 @@ def execute(
 
     file_root = repository / "work/results" / source.stem
     comparison = newest_comparison(file_root)
-    enroll_result = run_command(
-        [
-            python,
-            "-m",
-            "video_forensics.native.hevc_reference_enroll",
-            "--config",
-            str(config),
-            "--case-id",
-            case_id,
-            "--source",
-            str(source),
-            "--comparison",
-            str(comparison),
-        ],
-        output / "02_enroll.log",
-        timeout,
+    enrolled_case = enroll(
+        config,
+        case_id=case_id,
+        source=source,
+        comparison=comparison,
+        require_complete_rps=True,
+        minimum_comparable_records=1,
     )
-    if enroll_result["returncode"] != 0:
-        raise RuntimeError("reference enrollment failed; see 02_enroll.log")
+    (output / "02_enroll.json").write_text(
+        json.dumps(enrolled_case, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
     gate_output = output / "regression_gate.json"
-    gate_result = run_command(
-        [
-            python,
-            "-m",
-            "video_forensics.native.hevc_migration_regression",
-            str(config),
-            "--output",
-            str(gate_output),
-        ],
-        output / "03_regression_gate.log",
-        timeout,
-    )
-    gate = json.loads(gate_output.read_text(encoding="utf-8"))
-    if not isinstance(gate, dict):
-        raise TypeError("regression gate output must be an object")
+    gate = evaluate(config, gate_output)
 
     result = {
         "schema_version": 1,
@@ -122,8 +104,8 @@ def execute(
         "comparison": str(comparison),
         "config": str(config),
         "launcher_returncode": launcher_result["returncode"],
-        "enroll_returncode": enroll_result["returncode"],
-        "gate_returncode": gate_result["returncode"],
+        "enroll_returncode": 0,
+        "gate_returncode": 0 if gate.get("passed") else 1,
         "regression_passed": bool(gate.get("passed")),
         "legacy_removal_ready": bool(gate.get("legacy_removal_ready")),
         "gate": gate,
@@ -157,7 +139,20 @@ def main() -> int:
             config=repository / args.config,
             output=repository / args.output,
             launcher=(repository / args.launcher).resolve(strict=True),
-            python=resolve_program(args.python, "python"),
+            python=(
+                resolve_program(args.python, "python")
+                if args.python
+                else str(
+                    (
+                        repository
+                        / (
+                            ".venv/Scripts/python.exe"
+                            if sys.platform == "win32"
+                            else ".venv/bin/python"
+                        )
+                    ).resolve(strict=True)
+                )
+            ),
             timeout=args.timeout,
         )
     except (

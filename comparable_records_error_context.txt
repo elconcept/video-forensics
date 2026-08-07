@@ -1,0 +1,87 @@
+FILE: /home/tom/projects/video-forensics/diagnose_comparable_records_error.py
+LINE: 5
+        1: from __future__ import annotations
+        2: 
+        3: from pathlib import Path
+        4: 
+>>>     5: MESSAGE = "comparable records"
+        6: ROOT = Path.cwd()
+        7: SKIP = {".git", ".venv", "build", "dist", "work", "__pycache__"}
+        8: 
+        9: matches: list[tuple[Path, int, list[str]]] = []
+       10: for path in ROOT.rglob("*.py"):
+       11:     relative = path.relative_to(ROOT)
+       12:     if any(part in SKIP for part in relative.parts):
+       13:         continue
+       14:     try:
+       15:         lines = path.read_text(encoding="utf-8").splitlines()
+       16:     except (OSError, UnicodeDecodeError):
+       17:         continue
+       18:     for index, line in enumerate(lines):
+       19:         if MESSAGE in line:
+       20:             start = max(0, index - 25)
+       21:             end = min(len(lines), index + 26)
+       22:             matches.append((path, index + 1, lines[start:end]))
+       23: 
+       24: output = Path("comparable_records_error_context.txt")
+       25: with output.open("w", encoding="utf-8") as handle:
+       26:     if not matches:
+       27:         handle.write(f"Nie znaleziono tekstu: {MESSAGE!r}\n")
+       28:     for path, line_number, context in matches:
+       29:         handle.write(f"FILE: {path}\nLINE: {line_number}\n")
+       30:         context_start = max(1, line_number - 25)
+
+FILE: /home/tom/projects/video-forensics/src/video_forensics/native/hevc_reference_enroll.py
+LINE: 62
+       37: 
+       38: 
+       39: def relative_or_absolute(path: Path, base: Path) -> str:
+       40:     try:
+       41:         return str(path.relative_to(base))
+       42:     except ValueError:
+       43:         return str(path)
+       44: 
+       45: 
+       46: def enroll(
+       47:     config: Path,
+       48:     *,
+       49:     case_id: str,
+       50:     source: Path,
+       51:     comparison: Path,
+       52:     require_complete_rps: bool,
+       53:     minimum_comparable_records: int,
+       54: ) -> dict[str, Any]:
+       55:     source = source.expanduser().resolve(strict=True)
+       56:     comparison = comparison.expanduser().resolve(strict=True)
+       57:     parsed = validate_comparison(comparison)
+       58:     semantic = parsed["semantic"]
+       59:     actual_records = int(semantic.get("comparable_record_count", 0))
+       60:     if actual_records < minimum_comparable_records:
+       61:         raise ValueError(
+>>>    62:             f"comparison has only {actual_records} comparable records; "
+       63:             f"minimum is {minimum_comparable_records}"
+       64:         )
+       65:     if require_complete_rps and not semantic.get("rps_comparison_complete"):
+       66:         raise ValueError("comparison does not have complete RPS coverage")
+       67: 
+       68:     config = config.expanduser().resolve()
+       69:     config.parent.mkdir(parents=True, exist_ok=True)
+       70:     if config.exists():
+       71:         payload = read_object(config)
+       72:     else:
+       73:         payload = {"schema_version": 1, "cases": []}
+       74:     cases = payload.get("cases")
+       75:     if not isinstance(cases, list):
+       76:         raise TypeError("configuration cases must be a list")
+       77:     if any(isinstance(item, dict) and item.get("case_id") == case_id for item in cases):
+       78:         raise ValueError(f"case_id already exists: {case_id}")
+       79: 
+       80:     base = config.parent
+       81:     case = {
+       82:         "case_id": case_id,
+       83:         "source": relative_or_absolute(source, base),
+       84:         "source_sha256": sha256(source),
+       85:         "comparison": relative_or_absolute(comparison, base),
+       86:         "max_field_mismatches": 0,
+       87:         "minimum_comparable_records": minimum_comparable_records,
+

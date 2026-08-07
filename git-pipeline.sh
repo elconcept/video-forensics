@@ -7,7 +7,7 @@ echo "=== Rozpoczynam proces aktualizacji ==="
 
 # Krok 1: Uruchomienie naszego skryptu w Pythonie (generowanie CHANGE.LOG i usuwanie plików STEP)
 echo "-> Generowanie CHANGE.LOG..."
-python make_changelog.py
+# python make_changelog.py
 
 # Krok 2: Sprawdzanie i automatyczne naprawianie kodu za pomocą ruff
 echo "-> Formatowanie i sprawdzanie kodu (ruff)..."

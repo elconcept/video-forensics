@@ -1,0 +1,429 @@
+src/video_forensics/native/hevc_legacy_discovery.py-60-            {
+src/video_forensics/native/hevc_legacy_discovery.py-61-                "path": str(path),
+src/video_forensics/native/hevc_legacy_discovery.py-62-                "relative_path": str(path.relative_to(run_root)),
+src/video_forensics/native/hevc_legacy_discovery.py-63-                "score": points,
+src/video_forensics/native/hevc_legacy_discovery.py-64-                "reasons": reasons,
+src/video_forensics/native/hevc_legacy_discovery.py-65-            }
+src/video_forensics/native/hevc_legacy_discovery.py-66-        )
+src/video_forensics/native/hevc_legacy_discovery.py-67-    candidates.sort(key=lambda item: (-int(item["score"]), str(item["relative_path"])))
+src/video_forensics/native/hevc_legacy_discovery.py-68-    selected = None
+src/video_forensics/native/hevc_legacy_discovery.py-69-    status = "not_found"
+src/video_forensics/native/hevc_legacy_discovery.py-70-    if candidates:
+src/video_forensics/native/hevc_legacy_discovery.py-71-        top = int(candidates[0]["score"])
+src/video_forensics/native/hevc_legacy_discovery.py-72-        tied = [item for item in candidates if int(item["score"]) == top]
+src/video_forensics/native/hevc_legacy_discovery.py-73-        if len(tied) == 1:
+src/video_forensics/native/hevc_legacy_discovery.py-74-            selected = tied[0]["path"]
+src/video_forensics/native/hevc_legacy_discovery.py-75-            status = "selected"
+src/video_forensics/native/hevc_legacy_discovery.py-76-        else:
+src/video_forensics/native/hevc_legacy_discovery.py-77-            status = "ambiguous"
+src/video_forensics/native/hevc_legacy_discovery.py-78-    return {
+src/video_forensics/native/hevc_legacy_discovery.py-79-        "schema_version": 1,
+src/video_forensics/native/hevc_legacy_discovery.py:80:        "module": "hevc_legacy_discovery",
+src/video_forensics/native/hevc_legacy_discovery.py-81-        "run_root": str(run_root),
+src/video_forensics/native/hevc_legacy_discovery.py-82-        "status": status,
+src/video_forensics/native/hevc_legacy_discovery.py:83:        "selected_legacy_json": selected,
+src/video_forensics/native/hevc_legacy_discovery.py-84-        "candidate_count": len(candidates),
+src/video_forensics/native/hevc_legacy_discovery.py-85-        "candidates": candidates,
+src/video_forensics/native/hevc_legacy_discovery.py-86-    }
+src/video_forensics/native/hevc_legacy_discovery.py-87-
+src/video_forensics/native/hevc_legacy_discovery.py-88-
+src/video_forensics/native/hevc_legacy_discovery.py-89-def main() -> int:
+src/video_forensics/native/hevc_legacy_discovery.py-90-    parser = argparse.ArgumentParser(prog="video-forensics-hevc-legacy-discovery")
+src/video_forensics/native/hevc_legacy_discovery.py-91-    parser.add_argument("run_root", type=Path)
+src/video_forensics/native/hevc_legacy_discovery.py-92-    parser.add_argument("--output", required=True, type=Path)
+src/video_forensics/native/hevc_legacy_discovery.py-93-    args = parser.parse_args()
+src/video_forensics/native/hevc_legacy_discovery.py-94-    try:
+src/video_forensics/native/hevc_legacy_discovery.py-95-        result = discover(args.run_root)
+src/video_forensics/native/hevc_legacy_discovery.py-96-        args.output.parent.mkdir(parents=True, exist_ok=True)
+src/video_forensics/native/hevc_legacy_discovery.py-97-        args.output.write_text(
+src/video_forensics/native/hevc_legacy_discovery.py-98-            json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+src/video_forensics/native/hevc_legacy_discovery.py-99-            encoding="utf-8",
+src/video_forensics/native/hevc_legacy_discovery.py-100-        )
+src/video_forensics/native/hevc_legacy_discovery.py-101-    except (FileNotFoundError, OSError, TypeError, ValueError) as exc:
+src/video_forensics/native/hevc_legacy_discovery.py-102-        print(f"ERROR: {exc}", file=sys.stderr)
+src/video_forensics/native/hevc_legacy_discovery.py-103-        return 2
+--
+src/video_forensics/native/hevc_reference_run.py-68-    repository = repository.expanduser().resolve(strict=True)
+src/video_forensics/native/hevc_reference_run.py-69-    source = source.expanduser().resolve(strict=True)
+src/video_forensics/native/hevc_reference_run.py-70-    config = config.expanduser().resolve()
+src/video_forensics/native/hevc_reference_run.py-71-    output = output.expanduser().resolve()
+src/video_forensics/native/hevc_reference_run.py-72-    output.mkdir(parents=True, exist_ok=False)
+src/video_forensics/native/hevc_reference_run.py-73-
+src/video_forensics/native/hevc_reference_run.py-74-    launcher_result = run_command(
+src/video_forensics/native/hevc_reference_run.py-75-        [str(launcher)], output / "01_launcher.log", timeout
+src/video_forensics/native/hevc_reference_run.py-76-    )
+src/video_forensics/native/hevc_reference_run.py-77-    if launcher_result["returncode"] != 0:
+src/video_forensics/native/hevc_reference_run.py-78-        raise RuntimeError("analysis launcher failed; see 01_launcher.log")
+src/video_forensics/native/hevc_reference_run.py-79-
+src/video_forensics/native/hevc_reference_run.py-80-    file_root = repository / "work/results" / source.stem
+src/video_forensics/native/hevc_reference_run.py-81-    comparison = newest_comparison(file_root)
+src/video_forensics/native/hevc_reference_run.py-82-    enrolled_case = enroll(
+src/video_forensics/native/hevc_reference_run.py-83-        config,
+src/video_forensics/native/hevc_reference_run.py-84-        case_id=case_id,
+src/video_forensics/native/hevc_reference_run.py-85-        source=source,
+src/video_forensics/native/hevc_reference_run.py-86-        comparison=comparison,
+src/video_forensics/native/hevc_reference_run.py-87-        require_complete_rps=True,
+src/video_forensics/native/hevc_reference_run.py:88:        minimum_comparable_records=1,
+src/video_forensics/native/hevc_reference_run.py-89-    )
+src/video_forensics/native/hevc_reference_run.py-90-    (output / "02_enroll.json").write_text(
+src/video_forensics/native/hevc_reference_run.py-91-        json.dumps(enrolled_case, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+src/video_forensics/native/hevc_reference_run.py-92-        encoding="utf-8",
+src/video_forensics/native/hevc_reference_run.py-93-    )
+src/video_forensics/native/hevc_reference_run.py-94-
+src/video_forensics/native/hevc_reference_run.py-95-    gate_output = output / "regression_gate.json"
+src/video_forensics/native/hevc_reference_run.py-96-    gate = evaluate(config, gate_output)
+src/video_forensics/native/hevc_reference_run.py-97-
+src/video_forensics/native/hevc_reference_run.py-98-    result = {
+src/video_forensics/native/hevc_reference_run.py-99-        "schema_version": 1,
+src/video_forensics/native/hevc_reference_run.py-100-        "module": "hevc_reference_run",
+src/video_forensics/native/hevc_reference_run.py-101-        "completed_at_utc": datetime.now(UTC).isoformat(),
+src/video_forensics/native/hevc_reference_run.py-102-        "source": str(source),
+src/video_forensics/native/hevc_reference_run.py-103-        "case_id": case_id,
+src/video_forensics/native/hevc_reference_run.py-104-        "comparison": str(comparison),
+src/video_forensics/native/hevc_reference_run.py-105-        "config": str(config),
+src/video_forensics/native/hevc_reference_run.py-106-        "launcher_returncode": launcher_result["returncode"],
+src/video_forensics/native/hevc_reference_run.py-107-        "enroll_returncode": 0,
+src/video_forensics/native/hevc_reference_run.py-108-        "gate_returncode": 0 if gate.get("passed") else 1,
+src/video_forensics/native/hevc_reference_run.py-109-        "regression_passed": bool(gate.get("passed")),
+src/video_forensics/native/hevc_reference_run.py-110-        "legacy_removal_ready": bool(gate.get("legacy_removal_ready")),
+src/video_forensics/native/hevc_reference_run.py-111-        "gate": gate,
+src/video_forensics/native/hevc_reference_run.py-112-    }
+src/video_forensics/native/hevc_reference_run.py-113-    (output / "reference_run.json").write_text(
+src/video_forensics/native/hevc_reference_run.py-114-        json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+src/video_forensics/native/hevc_reference_run.py-115-        encoding="utf-8",
+src/video_forensics/native/hevc_reference_run.py-116-    )
+src/video_forensics/native/hevc_reference_run.py-117-    return result
+src/video_forensics/native/hevc_reference_run.py-118-
+src/video_forensics/native/hevc_reference_run.py-119-
+src/video_forensics/native/hevc_reference_run.py-120-def main() -> int:
+src/video_forensics/native/hevc_reference_run.py:121:    parser = argparse.ArgumentParser(prog="video-forensics-hevc-reference-run")
+src/video_forensics/native/hevc_reference_run.py-122-    parser.add_argument("--repository", type=Path, default=Path("."))
+src/video_forensics/native/hevc_reference_run.py-123-    parser.add_argument("--source", type=Path, default=Path("work/evidence/1796.mp4"))
+src/video_forensics/native/hevc_reference_run.py-124-    parser.add_argument("--case-id", default="1796-main")
+src/video_forensics/native/hevc_reference_run.py-125-    parser.add_argument(
+src/video_forensics/native/hevc_reference_run.py-126-        "--config", type=Path, default=Path("config/hevc_migration_references.json")
+src/video_forensics/native/hevc_reference_run.py-127-    )
+src/video_forensics/native/hevc_reference_run.py-128-    parser.add_argument("--output", required=True, type=Path)
+src/video_forensics/native/hevc_reference_run.py-129-    parser.add_argument("--launcher", type=Path, default=Path("launchers/run_all_linux.sh"))
+src/video_forensics/native/hevc_reference_run.py-130-    parser.add_argument("--python")
+src/video_forensics/native/hevc_reference_run.py-131-    parser.add_argument("--timeout", type=int, default=14400)
+src/video_forensics/native/hevc_reference_run.py-132-    args = parser.parse_args()
+src/video_forensics/native/hevc_reference_run.py-133-    try:
+src/video_forensics/native/hevc_reference_run.py-134-        repository = args.repository.expanduser().resolve(strict=True)
+src/video_forensics/native/hevc_reference_run.py-135-        result = execute(
+src/video_forensics/native/hevc_reference_run.py-136-            repository,
+src/video_forensics/native/hevc_reference_run.py-137-            source=repository / args.source,
+src/video_forensics/native/hevc_reference_run.py-138-            case_id=args.case_id,
+src/video_forensics/native/hevc_reference_run.py-139-            config=repository / args.config,
+src/video_forensics/native/hevc_reference_run.py-140-            output=repository / args.output,
+src/video_forensics/native/hevc_reference_run.py-141-            launcher=(repository / args.launcher).resolve(strict=True),
+--
+src/video_forensics/native/hevc_reference_enroll.py-33-        raise TypeError("comparison has no semantic object")
+src/video_forensics/native/hevc_reference_enroll.py-34-    if not acceptance.get("ffmpeg_control_passed"):
+src/video_forensics/native/hevc_reference_enroll.py-35-        raise ValueError("FFmpeg control did not pass")
+src/video_forensics/native/hevc_reference_enroll.py-36-    return comparison
+src/video_forensics/native/hevc_reference_enroll.py-37-
+src/video_forensics/native/hevc_reference_enroll.py-38-
+src/video_forensics/native/hevc_reference_enroll.py-39-def relative_or_absolute(path: Path, base: Path) -> str:
+src/video_forensics/native/hevc_reference_enroll.py-40-    try:
+src/video_forensics/native/hevc_reference_enroll.py-41-        return str(path.relative_to(base))
+src/video_forensics/native/hevc_reference_enroll.py-42-    except ValueError:
+src/video_forensics/native/hevc_reference_enroll.py-43-        return str(path)
+src/video_forensics/native/hevc_reference_enroll.py-44-
+src/video_forensics/native/hevc_reference_enroll.py-45-
+src/video_forensics/native/hevc_reference_enroll.py-46-def enroll(
+src/video_forensics/native/hevc_reference_enroll.py-47-    config: Path,
+src/video_forensics/native/hevc_reference_enroll.py-48-    *,
+src/video_forensics/native/hevc_reference_enroll.py-49-    case_id: str,
+src/video_forensics/native/hevc_reference_enroll.py-50-    source: Path,
+src/video_forensics/native/hevc_reference_enroll.py-51-    comparison: Path,
+src/video_forensics/native/hevc_reference_enroll.py-52-    require_complete_rps: bool,
+src/video_forensics/native/hevc_reference_enroll.py:53:    minimum_comparable_records: int,
+src/video_forensics/native/hevc_reference_enroll.py-54-) -> dict[str, Any]:
+src/video_forensics/native/hevc_reference_enroll.py-55-    source = source.expanduser().resolve(strict=True)
+src/video_forensics/native/hevc_reference_enroll.py-56-    comparison = comparison.expanduser().resolve(strict=True)
+src/video_forensics/native/hevc_reference_enroll.py-57-    parsed = validate_comparison(comparison)
+src/video_forensics/native/hevc_reference_enroll.py-58-    semantic = parsed["semantic"]
+src/video_forensics/native/hevc_reference_enroll.py-59-    actual_records = int(semantic.get("comparable_record_count", 0))
+src/video_forensics/native/hevc_reference_enroll.py:60:    if actual_records < minimum_comparable_records:
+src/video_forensics/native/hevc_reference_enroll.py-61-        raise ValueError(
+src/video_forensics/native/hevc_reference_enroll.py-62-            f"comparison has only {actual_records} comparable records; "
+src/video_forensics/native/hevc_reference_enroll.py:63:            f"minimum is {minimum_comparable_records}"
+src/video_forensics/native/hevc_reference_enroll.py-64-        )
+src/video_forensics/native/hevc_reference_enroll.py-65-    if require_complete_rps and not semantic.get("rps_comparison_complete"):
+src/video_forensics/native/hevc_reference_enroll.py-66-        raise ValueError("comparison does not have complete RPS coverage")
+src/video_forensics/native/hevc_reference_enroll.py-67-
+src/video_forensics/native/hevc_reference_enroll.py-68-    config = config.expanduser().resolve()
+src/video_forensics/native/hevc_reference_enroll.py-69-    config.parent.mkdir(parents=True, exist_ok=True)
+src/video_forensics/native/hevc_reference_enroll.py-70-    if config.exists():
+src/video_forensics/native/hevc_reference_enroll.py-71-        payload = read_object(config)
+src/video_forensics/native/hevc_reference_enroll.py-72-    else:
+src/video_forensics/native/hevc_reference_enroll.py-73-        payload = {"schema_version": 1, "cases": []}
+src/video_forensics/native/hevc_reference_enroll.py-74-    cases = payload.get("cases")
+src/video_forensics/native/hevc_reference_enroll.py-75-    if not isinstance(cases, list):
+src/video_forensics/native/hevc_reference_enroll.py-76-        raise TypeError("configuration cases must be a list")
+src/video_forensics/native/hevc_reference_enroll.py-77-    if any(isinstance(item, dict) and item.get("case_id") == case_id for item in cases):
+src/video_forensics/native/hevc_reference_enroll.py-78-        raise ValueError(f"case_id already exists: {case_id}")
+src/video_forensics/native/hevc_reference_enroll.py-79-
+src/video_forensics/native/hevc_reference_enroll.py-80-    base = config.parent
+src/video_forensics/native/hevc_reference_enroll.py-81-    case = {
+src/video_forensics/native/hevc_reference_enroll.py-82-        "case_id": case_id,
+src/video_forensics/native/hevc_reference_enroll.py-83-        "source": relative_or_absolute(source, base),
+src/video_forensics/native/hevc_reference_enroll.py-84-        "source_sha256": sha256(source),
+src/video_forensics/native/hevc_reference_enroll.py-85-        "comparison": relative_or_absolute(comparison, base),
+src/video_forensics/native/hevc_reference_enroll.py-86-        "max_field_mismatches": 0,
+src/video_forensics/native/hevc_reference_enroll.py:87:        "minimum_comparable_records": minimum_comparable_records,
+src/video_forensics/native/hevc_reference_enroll.py-88-        "require_legacy_agreement": True,
+src/video_forensics/native/hevc_reference_enroll.py-89-        "require_complete_rps": require_complete_rps,
+src/video_forensics/native/hevc_reference_enroll.py-90-        "enrollment_evidence": {
+src/video_forensics/native/hevc_reference_enroll.py-91-            "actual_comparable_records": actual_records,
+src/video_forensics/native/hevc_reference_enroll.py-92-            "actual_field_mismatches": semantic.get("field_mismatch_count"),
+src/video_forensics/native/hevc_reference_enroll.py-93-            "actual_rps_comparison_complete": semantic.get(
+src/video_forensics/native/hevc_reference_enroll.py-94-                "rps_comparison_complete"
+src/video_forensics/native/hevc_reference_enroll.py-95-            ),
+src/video_forensics/native/hevc_reference_enroll.py-96-            "ffmpeg_control_passed": True,
+src/video_forensics/native/hevc_reference_enroll.py-97-            "legacy_comparison_requested": True,
+src/video_forensics/native/hevc_reference_enroll.py-98-        },
+src/video_forensics/native/hevc_reference_enroll.py-99-    }
+src/video_forensics/native/hevc_reference_enroll.py-100-    cases.append(case)
+src/video_forensics/native/hevc_reference_enroll.py-101-    payload["cases"] = cases
+src/video_forensics/native/hevc_reference_enroll.py-102-    config.write_text(
+src/video_forensics/native/hevc_reference_enroll.py-103-        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+src/video_forensics/native/hevc_reference_enroll.py-104-        encoding="utf-8",
+src/video_forensics/native/hevc_reference_enroll.py-105-    )
+src/video_forensics/native/hevc_reference_enroll.py-106-    return case
+src/video_forensics/native/hevc_reference_enroll.py-107-
+src/video_forensics/native/hevc_reference_enroll.py-108-
+src/video_forensics/native/hevc_reference_enroll.py-109-def main() -> int:
+src/video_forensics/native/hevc_reference_enroll.py-110-    parser = argparse.ArgumentParser(prog="video-forensics-hevc-reference-enroll")
+src/video_forensics/native/hevc_reference_enroll.py-111-    parser.add_argument("--config", required=True, type=Path)
+src/video_forensics/native/hevc_reference_enroll.py-112-    parser.add_argument("--case-id", required=True)
+src/video_forensics/native/hevc_reference_enroll.py-113-    parser.add_argument("--source", required=True, type=Path)
+src/video_forensics/native/hevc_reference_enroll.py-114-    parser.add_argument("--comparison", required=True, type=Path)
+src/video_forensics/native/hevc_reference_enroll.py-115-    parser.add_argument("--minimum-comparable-records", type=int, default=1)
+src/video_forensics/native/hevc_reference_enroll.py-116-    parser.add_argument("--allow-incomplete-rps", action="store_true")
+src/video_forensics/native/hevc_reference_enroll.py-117-    args = parser.parse_args()
+src/video_forensics/native/hevc_reference_enroll.py-118-    try:
+src/video_forensics/native/hevc_reference_enroll.py-119-        case = enroll(
+src/video_forensics/native/hevc_reference_enroll.py-120-            args.config,
+src/video_forensics/native/hevc_reference_enroll.py-121-            case_id=args.case_id,
+src/video_forensics/native/hevc_reference_enroll.py-122-            source=args.source,
+src/video_forensics/native/hevc_reference_enroll.py-123-            comparison=args.comparison,
+src/video_forensics/native/hevc_reference_enroll.py-124-            require_complete_rps=not args.allow_incomplete_rps,
+src/video_forensics/native/hevc_reference_enroll.py:125:            minimum_comparable_records=args.minimum_comparable_records,
+src/video_forensics/native/hevc_reference_enroll.py-126-        )
+src/video_forensics/native/hevc_reference_enroll.py-127-    except (
+src/video_forensics/native/hevc_reference_enroll.py-128-        FileNotFoundError,
+src/video_forensics/native/hevc_reference_enroll.py-129-        json.JSONDecodeError,
+src/video_forensics/native/hevc_reference_enroll.py-130-        OSError,
+src/video_forensics/native/hevc_reference_enroll.py-131-        TypeError,
+src/video_forensics/native/hevc_reference_enroll.py-132-        ValueError,
+src/video_forensics/native/hevc_reference_enroll.py-133-    ) as exc:
+src/video_forensics/native/hevc_reference_enroll.py-134-        print(f"ERROR: {exc}", file=sys.stderr)
+src/video_forensics/native/hevc_reference_enroll.py-135-        return 2
+src/video_forensics/native/hevc_reference_enroll.py-136-    print(json.dumps(case, ensure_ascii=False, indent=2))
+src/video_forensics/native/hevc_reference_enroll.py-137-    return 0
+src/video_forensics/native/hevc_reference_enroll.py-138-
+src/video_forensics/native/hevc_reference_enroll.py-139-
+src/video_forensics/native/hevc_reference_enroll.py-140-if __name__ == "__main__":
+src/video_forensics/native/hevc_reference_enroll.py-141-    raise SystemExit(main())
+--
+src/video_forensics/native/hevc_migration_regression.py-37-                raise KeyError(f"case {index} has no {required}")
+src/video_forensics/native/hevc_migration_regression.py-38-        normalized.append(case)
+src/video_forensics/native/hevc_migration_regression.py-39-    return normalized
+src/video_forensics/native/hevc_migration_regression.py-40-
+src/video_forensics/native/hevc_migration_regression.py-41-
+src/video_forensics/native/hevc_migration_regression.py-42-def validate_case(case: dict[str, Any], base: Path) -> dict[str, Any]:
+src/video_forensics/native/hevc_migration_regression.py-43-    source = (base / str(case["source"])).resolve(strict=True)
+src/video_forensics/native/hevc_migration_regression.py-44-    comparison_path = (base / str(case["comparison"])).resolve(strict=True)
+src/video_forensics/native/hevc_migration_regression.py-45-    comparison = read_object(comparison_path)
+src/video_forensics/native/hevc_migration_regression.py-46-    acceptance = comparison.get("migration_acceptance")
+src/video_forensics/native/hevc_migration_regression.py-47-    semantic = comparison.get("semantic")
+src/video_forensics/native/hevc_migration_regression.py-48-    if not isinstance(acceptance, dict):
+src/video_forensics/native/hevc_migration_regression.py-49-        raise TypeError(f"comparison has no migration_acceptance: {comparison_path}")
+src/video_forensics/native/hevc_migration_regression.py-50-    if not isinstance(semantic, dict):
+src/video_forensics/native/hevc_migration_regression.py-51-        raise TypeError(f"comparison has no semantic result: {comparison_path}")
+src/video_forensics/native/hevc_migration_regression.py-52-
+src/video_forensics/native/hevc_migration_regression.py-53-    expected_sha = case.get("source_sha256")
+src/video_forensics/native/hevc_migration_regression.py-54-    actual_sha = sha256(source)
+src/video_forensics/native/hevc_migration_regression.py-55-    source_matches = expected_sha is None or str(expected_sha).lower() == actual_sha
+src/video_forensics/native/hevc_migration_regression.py-56-    max_mismatches = int(case.get("max_field_mismatches", 0))
+src/video_forensics/native/hevc_migration_regression.py:57:    minimum_records = int(case.get("minimum_comparable_records", 1))
+src/video_forensics/native/hevc_migration_regression.py-58-    require_rps = bool(case.get("require_complete_rps", False))
+src/video_forensics/native/hevc_migration_regression.py-59-    legacy_required = bool(case.get("require_legacy_agreement", True))
+src/video_forensics/native/hevc_migration_regression.py-60-
+src/video_forensics/native/hevc_migration_regression.py-61-    checks = [
+src/video_forensics/native/hevc_migration_regression.py-62-        {
+src/video_forensics/native/hevc_migration_regression.py-63-            "id": "SOURCE_SHA256",
+src/video_forensics/native/hevc_migration_regression.py-64-            "passed": source_matches,
+src/video_forensics/native/hevc_migration_regression.py-65-            "expected": expected_sha,
+src/video_forensics/native/hevc_migration_regression.py-66-            "actual": actual_sha,
+src/video_forensics/native/hevc_migration_regression.py-67-        },
+src/video_forensics/native/hevc_migration_regression.py-68-        {
+src/video_forensics/native/hevc_migration_regression.py-69-            "id": "FFMPEG_CONTROL",
+src/video_forensics/native/hevc_migration_regression.py-70-            "passed": bool(acceptance.get("ffmpeg_control_passed")),
+src/video_forensics/native/hevc_migration_regression.py-71-        },
+src/video_forensics/native/hevc_migration_regression.py-72-        {
+src/video_forensics/native/hevc_migration_regression.py-73-            "id": "FIELD_MISMATCH_LIMIT",
+src/video_forensics/native/hevc_migration_regression.py-74-            "passed": int(semantic.get("field_mismatch_count", -1))
+src/video_forensics/native/hevc_migration_regression.py-75-            <= max_mismatches,
+src/video_forensics/native/hevc_migration_regression.py-76-            "actual": semantic.get("field_mismatch_count"),
+src/video_forensics/native/hevc_migration_regression.py-77-            "maximum": max_mismatches,
+--
+tests/test_hevc_migration_regression.py-20-                    "field_mismatch_count": 0,
+tests/test_hevc_migration_regression.py-21-                    "comparable_record_count": 4,
+tests/test_hevc_migration_regression.py-22-                    "legacy_semantic_agreement": True,
+tests/test_hevc_migration_regression.py-23-                    "rps_comparison_complete": True,
+tests/test_hevc_migration_regression.py-24-                },
+tests/test_hevc_migration_regression.py-25-            }
+tests/test_hevc_migration_regression.py-26-        ),
+tests/test_hevc_migration_regression.py-27-        encoding="utf-8",
+tests/test_hevc_migration_regression.py-28-    )
+tests/test_hevc_migration_regression.py-29-    config = tmp_path / "config.json"
+tests/test_hevc_migration_regression.py-30-    config.write_text(
+tests/test_hevc_migration_regression.py-31-        json.dumps(
+tests/test_hevc_migration_regression.py-32-            {
+tests/test_hevc_migration_regression.py-33-                "cases": [
+tests/test_hevc_migration_regression.py-34-                    {
+tests/test_hevc_migration_regression.py-35-                        "case_id": "main",
+tests/test_hevc_migration_regression.py-36-                        "source": source.name,
+tests/test_hevc_migration_regression.py-37-                        "source_sha256": digest,
+tests/test_hevc_migration_regression.py-38-                        "comparison": comparison.name,
+tests/test_hevc_migration_regression.py-39-                        "max_field_mismatches": 0,
+tests/test_hevc_migration_regression.py:40:                        "minimum_comparable_records": 4,
+tests/test_hevc_migration_regression.py-41-                        "require_legacy_agreement": True,
+tests/test_hevc_migration_regression.py-42-                        "require_complete_rps": True,
+tests/test_hevc_migration_regression.py-43-                    }
+tests/test_hevc_migration_regression.py-44-                ]
+tests/test_hevc_migration_regression.py-45-            }
+tests/test_hevc_migration_regression.py-46-        ),
+tests/test_hevc_migration_regression.py-47-        encoding="utf-8",
+tests/test_hevc_migration_regression.py-48-    )
+tests/test_hevc_migration_regression.py-49-    result = evaluate(config, tmp_path / "result.json")
+tests/test_hevc_migration_regression.py-50-    assert result["passed"] is True
+tests/test_hevc_migration_regression.py-51-    assert result["legacy_removal_ready"] is True
+tests/test_hevc_migration_regression.py-52-
+tests/test_hevc_migration_regression.py-53-
+tests/test_hevc_migration_regression.py-54-def test_failed_control_blocks_legacy_removal(tmp_path: Path) -> None:
+tests/test_hevc_migration_regression.py-55-    source = tmp_path / "reference.h265"
+tests/test_hevc_migration_regression.py-56-    source.write_bytes(b"reference")
+tests/test_hevc_migration_regression.py-57-    comparison = tmp_path / "comparison.json"
+tests/test_hevc_migration_regression.py-58-    comparison.write_text(
+tests/test_hevc_migration_regression.py-59-        json.dumps(
+tests/test_hevc_migration_regression.py-60-            {
+--
+tests/test_hevc_reference_enroll.py-23-                    "rps_comparison_complete": rps,
+tests/test_hevc_reference_enroll.py-24-                },
+tests/test_hevc_reference_enroll.py-25-            }
+tests/test_hevc_reference_enroll.py-26-        ),
+tests/test_hevc_reference_enroll.py-27-        encoding="utf-8",
+tests/test_hevc_reference_enroll.py-28-    )
+tests/test_hevc_reference_enroll.py-29-
+tests/test_hevc_reference_enroll.py-30-
+tests/test_hevc_reference_enroll.py-31-def test_enrolls_only_verified_real_result(tmp_path: Path) -> None:
+tests/test_hevc_reference_enroll.py-32-    source = tmp_path / "reference.h265"
+tests/test_hevc_reference_enroll.py-33-    source.write_bytes(b"reference")
+tests/test_hevc_reference_enroll.py-34-    result = tmp_path / "comparison.json"
+tests/test_hevc_reference_enroll.py-35-    comparison(result)
+tests/test_hevc_reference_enroll.py-36-    config = tmp_path / "references.json"
+tests/test_hevc_reference_enroll.py-37-    case = enroll(
+tests/test_hevc_reference_enroll.py-38-        config,
+tests/test_hevc_reference_enroll.py-39-        case_id="main",
+tests/test_hevc_reference_enroll.py-40-        source=source,
+tests/test_hevc_reference_enroll.py-41-        comparison=result,
+tests/test_hevc_reference_enroll.py-42-        require_complete_rps=True,
+tests/test_hevc_reference_enroll.py:43:        minimum_comparable_records=4,
+tests/test_hevc_reference_enroll.py-44-    )
+tests/test_hevc_reference_enroll.py-45-    assert case["source_sha256"] == hashlib.sha256(b"reference").hexdigest()
+tests/test_hevc_reference_enroll.py-46-    assert case["enrollment_evidence"]["actual_comparable_records"] == 7
+tests/test_hevc_reference_enroll.py-47-    assert "REPLACE" not in config.read_text()
+tests/test_hevc_reference_enroll.py-48-
+tests/test_hevc_reference_enroll.py-49-
+tests/test_hevc_reference_enroll.py-50-def test_rejects_result_without_legacy_comparison(tmp_path: Path) -> None:
+tests/test_hevc_reference_enroll.py-51-    source = tmp_path / "reference.h265"
+tests/test_hevc_reference_enroll.py-52-    source.write_bytes(b"reference")
+tests/test_hevc_reference_enroll.py-53-    result = tmp_path / "comparison.json"
+tests/test_hevc_reference_enroll.py-54-    comparison(result, legacy=False)
+tests/test_hevc_reference_enroll.py-55-    with pytest.raises(ValueError, match="without legacy"):
+tests/test_hevc_reference_enroll.py-56-        enroll(
+tests/test_hevc_reference_enroll.py-57-            tmp_path / "references.json",
+tests/test_hevc_reference_enroll.py-58-            case_id="main",
+tests/test_hevc_reference_enroll.py-59-            source=source,
+tests/test_hevc_reference_enroll.py-60-            comparison=result,
+tests/test_hevc_reference_enroll.py-61-            require_complete_rps=True,
+tests/test_hevc_reference_enroll.py:62:            minimum_comparable_records=1,
+tests/test_hevc_reference_enroll.py-63-        )
+--
+tests/test_hevc_legacy_discovery.py-1-from __future__ import annotations
+tests/test_hevc_legacy_discovery.py-2-
+tests/test_hevc_legacy_discovery.py-3-import json
+tests/test_hevc_legacy_discovery.py-4-from pathlib import Path
+tests/test_hevc_legacy_discovery.py-5-
+tests/test_hevc_legacy_discovery.py:6:from video_forensics.native.hevc_legacy_discovery import discover
+tests/test_hevc_legacy_discovery.py-7-
+tests/test_hevc_legacy_discovery.py-8-
+tests/test_hevc_legacy_discovery.py-9-def write(path: Path, value: dict[str, object]) -> None:
+tests/test_hevc_legacy_discovery.py-10-    path.parent.mkdir(parents=True, exist_ok=True)
+tests/test_hevc_legacy_discovery.py-11-    path.write_text(json.dumps(value), encoding="utf-8")
+tests/test_hevc_legacy_discovery.py-12-
+tests/test_hevc_legacy_discovery.py-13-
+tests/test_hevc_legacy_discovery.py-14-def test_selects_single_legacy_semantic_result(tmp_path: Path) -> None:
+tests/test_hevc_legacy_discovery.py-15-    write(tmp_path / "baseline/hevc_bitstream.json", {"nal_units": [], "sps": [], "pps": []})
+tests/test_hevc_legacy_discovery.py-16-    write(
+tests/test_hevc_legacy_discovery.py-17-        tmp_path / "hevc_parser_migration/h265nal_normalized.json",
+tests/test_hevc_legacy_discovery.py-18-        {"primary_backend": "h265nal", "nal_units": []},
+tests/test_hevc_legacy_discovery.py-19-    )
+tests/test_hevc_legacy_discovery.py-20-    result = discover(tmp_path)
+tests/test_hevc_legacy_discovery.py-21-    assert result["status"] == "selected"
+tests/test_hevc_legacy_discovery.py:22:    assert result["selected_legacy_json"].endswith("hevc_bitstream.json")
+tests/test_hevc_legacy_discovery.py-23-
+tests/test_hevc_legacy_discovery.py-24-
+tests/test_hevc_legacy_discovery.py-25-def test_refuses_equal_top_candidates(tmp_path: Path) -> None:
+tests/test_hevc_legacy_discovery.py-26-    write(tmp_path / "a/hevc.json", {"nal_units": []})
+tests/test_hevc_legacy_discovery.py-27-    write(tmp_path / "b/hevc.json", {"nal_units": []})
+tests/test_hevc_legacy_discovery.py-28-    result = discover(tmp_path)
+tests/test_hevc_legacy_discovery.py-29-    assert result["status"] == "ambiguous"
+tests/test_hevc_legacy_discovery.py:30:    assert result["selected_legacy_json"] is None
+--
+pyproject.toml-4-
+pyproject.toml-5-[project]
+pyproject.toml-6-name = "video-forensics"
+pyproject.toml-7-version = "0.1.0"
+pyproject.toml-8-description = "Containerized forensic video examination toolkit"
+pyproject.toml-9-requires-python = ">=3.12"
+pyproject.toml-10-dependencies = [
+pyproject.toml-11-  "numpy>=2.0,<3",
+pyproject.toml-12-  "Pillow>=12,<13",
+pyproject.toml-13-]
+pyproject.toml-14-
+pyproject.toml-15-[project.optional-dependencies]
+pyproject.toml-16-dev = [
+pyproject.toml-17-  "build>=1,<2",
+pyproject.toml-18-  "pytest>=8,<9",
+pyproject.toml-19-  "ruff>=0.12,<1",
+pyproject.toml-20-  "mypy>=1.17,<2",
+pyproject.toml-21-]
+pyproject.toml-22-
+pyproject.toml-23-[project.scripts]
+pyproject.toml:24:video-forensics-hevc-reference-run = "video_forensics.native.hevc_reference_run:main"
+pyproject.toml:25:video-forensics-hevc-legacy-discovery = "video_forensics.native.hevc_legacy_discovery:main"
+pyproject.toml-26-video-forensics-hevc-reference-enroll = "video_forensics.native.hevc_reference_enroll:main"
+pyproject.toml-27-video-forensics-hevc-migration-regression = "video_forensics.native.hevc_migration_regression:main"
+pyproject.toml-28-video-forensics-hevc-reference-compare = "video_forensics.native.hevc_reference_compare:main"
+pyproject.toml-29-video-forensics-hevc-semantic-compare = "video_forensics.native.hevc_semantic_compare:main"
+pyproject.toml-30-video-forensics-hevc-migration-stage = "video_forensics.native.hevc_migration_stage:main"
+pyproject.toml-31-video-forensics-hevc-parser-authority = "video_forensics.native.hevc_parser_authority:main"
+pyproject.toml-32-video-forensics-normalize-h265nal = "video_forensics.native.h265nal_normalizer:main"
+pyproject.toml-33-video-forensics-hevc-migration-gate = "video_forensics.native.hevc_parser_migration_gate:main"
+pyproject.toml-34-video-forensics-hevc-syntax = "video_forensics.native.h265nal_pipeline:main"
+pyproject.toml-35-video-forensics-h265nal = "video_forensics.native.h265nal_adapter:main"
+pyproject.toml-36-video-forensics-orphan-numeric-arrays = "video_forensics.native.orphan_numeric_arrays:main"
+pyproject.toml-37-video-forensics-cross-run-compare = "video_forensics.native.cross_run_compare:main"
+pyproject.toml-38-video-forensics-orphan-independent-run = "video_forensics.native.orphan_independent_run:main"
+pyproject.toml-39-video-forensics-decode-orphan-libde265 = "video_forensics.native.decode_orphan_libde265:main"
+pyproject.toml-40-video-forensics-result-summary = "video_forensics.native.result_summary:main"
+pyproject.toml-41-video-forensics-review-orphan-plan = "video_forensics.native.orphan_plan_review:main"
+pyproject.toml-42-video-forensics-submission-bundle = "video_forensics.native.submission_bundle:main"
+pyproject.toml-43-video-forensics-decoder-frame-timestamps = "video_forensics.native.decoder_frame_timestamps:main"
+pyproject.toml-44-video-forensics-osd-timeline = "video_forensics.native.osd_timeline:main"
+pyproject.toml-45-video-forensics = "video_forensics.cli:main"
