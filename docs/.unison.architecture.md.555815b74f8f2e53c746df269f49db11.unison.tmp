@@ -1,0 +1,21 @@
+# Architecture
+
+## Boundary
+
+The project analyses a supplied video file without modifying it. Evidence is mounted read-only.
+
+## Planned stages
+
+1. integrity and execution manifest
+2. metadata using independent parsers
+3. container and sample-table structure
+4. timestamps and stream continuity
+5. GOP and packet analysis
+6. decoded-frame metrics
+7. duplication, blending, and continuity tests
+8. compression indicators
+9. audio and A/V synchronization
+10. comparison with reference recordings
+11. consolidated factual report
+
+Each stage will preserve raw tool output and write a normalized machine-readable result.

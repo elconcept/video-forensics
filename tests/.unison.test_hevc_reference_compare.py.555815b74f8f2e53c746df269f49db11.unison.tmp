@@ -1,0 +1,31 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from video_forensics.native.hevc_reference_compare import run_trace
+
+
+def test_trace_headers_command_is_bitstream_only(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    stream = tmp_path / "input.h265"
+    stream.write_bytes(b"fixture")
+
+    class Completed:
+        returncode = 0
+        stdout = ""
+        stderr = "nal_unit_type 100001 = 33\n"
+
+    captured = {}
+
+    def fake_run(argv, **kwargs):
+        captured["argv"] = argv
+        return Completed()
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    result = run_trace(
+        Path("ffmpeg"), stream, tmp_path / "trace.txt", 30
+    )
+    assert result["success"] is True
+    assert "trace_headers" in captured["argv"]
+    assert captured["argv"][captured["argv"].index("-c:v") + 1] == "copy"

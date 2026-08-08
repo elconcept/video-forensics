@@ -1,0 +1,107 @@
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import sys
+from pathlib import Path
+from typing import Any
+
+VIEW_SUFFIXES = {
+    "decoder": lambda name: not name.endswith(("_perceptual", "_normalized")),
+    "perceptual": lambda name: name.endswith("_perceptual"),
+    "normalized": lambda name: name.endswith("_normalized"),
+}
+
+
+def read_json(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise TypeError(f"expected a JSON object: {path}")
+    return payload
+
+
+def discover(imported_root: Path) -> list[tuple[str, Path]]:
+    runs: list[tuple[str, Path]] = []
+    for receipt_path in sorted(imported_root.glob("*/import_receipt.json")):
+        source_root = receipt_path.parent
+        source_id = str(read_json(receipt_path)["source_id"])
+        for manifest_path in sorted(source_root.glob("*/manifest.json")):
+            runs.append((source_id, manifest_path.parent))
+    return runs
+
+
+def link_or_copy(source: Path, destination: Path, copy: bool) -> str:
+    if copy:
+        shutil.copytree(source, destination)
+        return "copy"
+    try:
+        os.symlink(source, destination, target_is_directory=True)
+        return "symlink"
+    except OSError:
+        shutil.copytree(source, destination)
+        return "copy_fallback"
+
+
+def prepare(imported_root: Path, destination: Path, *, copy: bool = False) -> dict[str, object]:
+    imported_root = imported_root.resolve(strict=True)
+    if not imported_root.is_dir():
+        raise ValueError(f"imported root is not a directory: {imported_root}")
+    discovered = discover(imported_root)
+    if not discovered:
+        raise ValueError(f"no imported runs found: {imported_root}")
+
+    destination = destination.resolve()
+    destination.mkdir(parents=True, exist_ok=False)
+    views: dict[str, list[dict[str, object]]] = {name: [] for name in VIEW_SUFFIXES}
+
+    for view_name, predicate in VIEW_SUFFIXES.items():
+        view_root = destination / view_name
+        view_root.mkdir()
+        for source_id, run_dir in discovered:
+            if not predicate(run_dir.name):
+                continue
+            flattened_name = f"{source_id}__{run_dir.name}"
+            target = view_root / flattened_name
+            method = link_or_copy(run_dir, target, copy)
+            views[view_name].append(
+                {
+                    "source_id": source_id,
+                    "original_run": run_dir.name,
+                    "flattened_run": flattened_name,
+                    "method": method,
+                }
+            )
+
+    manifest = {
+        "schema_version": 1,
+        "imported_root": str(imported_root),
+        "destination": str(destination),
+        "views": views,
+    }
+    (destination / "comparison_views.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return manifest
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="prepare-comparison-views")
+    parser.add_argument("imported_root", type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--copy", action="store_true")
+    args = parser.parse_args()
+    try:
+        result = prepare(args.imported_root, args.output, copy=args.copy)
+    except (FileNotFoundError, FileExistsError, KeyError, TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    counts = {name: len(entries) for name, entries in result["views"].items()}
+    print(json.dumps(counts, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

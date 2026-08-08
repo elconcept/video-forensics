@@ -1,0 +1,111 @@
+from __future__ import annotations
+
+from video_forensics.native.h265nal_primary import analyze, compare_legacy
+
+
+def document() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "module": "h265nal_adapter",
+        "source": {"sha256": "abc"},
+        "tool": {"upstream": "chemag/h265nal"},
+        "nal_units": [
+            {
+                "nal_number": 1,
+                "offset": 0,
+                "length": 10,
+                "header": {"nal_unit_type": 33},
+                "payload": {
+                    "sps": {
+                        "sps_seq_parameter_set_id": 0,
+                        "log2_max_pic_order_cnt_lsb_minus4": 4,
+                    }
+                },
+            },
+            {
+                "nal_number": 2,
+                "offset": 10,
+                "length": 8,
+                "header": {"nal_unit_type": 34},
+                "payload": {
+                    "pps": {
+                        "pps_pic_parameter_set_id": 0,
+                        "pps_seq_parameter_set_id": 0,
+                    }
+                },
+            },
+            {
+                "nal_number": 3,
+                "offset": 18,
+                "length": 10,
+                "header": {"nal_unit_type": 19},
+                "payload": {
+                    "slice_segment_layer": {
+                        "slice_segment_header": {
+                            "first_slice_segment_in_pic_flag": 1,
+                            "slice_pic_parameter_set_id": 0,
+                            "slice_type": 2,
+                        }
+                    }
+                },
+            },
+            {
+                "nal_number": 4,
+                "offset": 28,
+                "length": 10,
+                "header": {"nal_unit_type": 1},
+                "payload": {
+                    "slice_segment_layer": {
+                        "slice_segment_header": {
+                            "first_slice_segment_in_pic_flag": 1,
+                            "slice_pic_parameter_set_id": 0,
+                            "slice_type": 1,
+                            "slice_pic_order_cnt_lsb": 50,
+                        }
+                    }
+                },
+            },
+            {
+                "nal_number": 5,
+                "offset": 38,
+                "length": 10,
+                "header": {"nal_unit_type": 1},
+                "payload": {
+                    "slice_segment_layer": {
+                        "slice_segment_header": {
+                            "first_slice_segment_in_pic_flag": 1,
+                            "slice_pic_parameter_set_id": 0,
+                            "slice_type": 1,
+                            "slice_pic_order_cnt_lsb": 1,
+                        }
+                    }
+                },
+            },
+        ],
+    }
+
+
+def test_primary_assigns_parameter_versions_and_detects_regression() -> None:
+    result = analyze(document())
+    assert result["picture_count"] == 3
+    assert result["parse_error_count"] == 0
+    assert result["pictures"][1]["poc"] == 50
+    assert result["pictures"][2]["poc"] == 1
+    assert result["pictures"][2]["sps_version"] == 1
+    assert result["findings"][0]["id"] == "HEVC_POC_REGRESSION_WITHOUT_IRAP"
+
+
+def test_legacy_mismatch_blocks_migration() -> None:
+    primary = analyze(document())
+    comparison = compare_legacy(
+        primary,
+        {
+            "pictures": [
+                {"nal_number": 3, "poc": 0},
+                {"nal_number": 4, "poc": 49},
+                {"nal_number": 5, "poc": 1},
+            ]
+        },
+    )
+    assert comparison["status"] == "mismatch"
+    assert comparison["mismatch_count"] == 1

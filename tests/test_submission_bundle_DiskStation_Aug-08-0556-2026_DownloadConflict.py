@@ -1,0 +1,52 @@
+from __future__ import annotations
+
+import csv
+import hashlib
+import json
+import zipfile
+from pathlib import Path
+
+from video_forensics.native.submission_bundle import build_bundle
+
+
+def write_index(directory: Path, filename: str, content: bytes) -> None:
+    directory.mkdir(parents=True)
+    (directory / filename).write_bytes(content)
+    with (directory / "index.csv").open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=["frame_number", "filename", "size_bytes", "sha256"]
+        )
+        writer.writeheader()
+        writer.writerow(
+            {
+                "frame_number": 1,
+                "filename": filename,
+                "size_bytes": len(content),
+                "sha256": hashlib.sha256(content).hexdigest(),
+            }
+        )
+
+
+def test_builds_compressed_bundle_and_references_lossless(tmp_path: Path) -> None:
+    root = tmp_path / "visual"
+    run_id = "host__decoder"
+    write_index(root / "email" / run_id, "frame_0001.jpg", b"jpg")
+    write_index(root / "lossless" / run_id, "frame_0001.png", b"png")
+    (root / "visual_frame_export.json").write_text(
+        json.dumps(
+            {
+                "input": {"sha256": "source"},
+                "host_profile_id": "host",
+            }
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "submission.zip"
+    result = build_bundle(root, output)
+    assert result["email_frame_count"] == 1
+    assert output.with_suffix(".zip.sha256").is_file()
+    with zipfile.ZipFile(output) as archive:
+        names = set(archive.namelist())
+        assert "README.txt" in names
+        assert "frames/host__decoder/frame_0001.jpg" in names
+        assert "frames/host__decoder/frame_0001.png" not in names

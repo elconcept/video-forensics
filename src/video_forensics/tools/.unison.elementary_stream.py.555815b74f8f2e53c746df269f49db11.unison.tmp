@@ -1,0 +1,74 @@
+from __future__ import annotations
+
+import hashlib
+from pathlib import Path
+from time import monotonic
+
+from video_forensics.manifest import atomic_write_json, utc_now
+from video_forensics.process import run_command
+
+FFMPEG = Path("/usr/bin/ffmpeg")
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(8 * 1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def analyze(video: Path, output_dir: Path, *, timeout: int = 3600) -> dict[str, object]:
+    video = video.resolve(strict=True)
+    if not video.is_file():
+        raise ValueError(f"input is not a regular file: {video}")
+    if not FFMPEG.is_file():
+        raise FileNotFoundError(f"required executable not found: {FFMPEG}")
+
+    target_dir = output_dir / "elementary_stream"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / "video.hevc"
+    if target.exists():
+        raise FileExistsError(f"elementary stream output already exists: {target}")
+
+    argv = [
+        str(FFMPEG),
+        "-nostdin",
+        "-v",
+        "error",
+        "-i",
+        str(video),
+        "-map",
+        "0:v:0",
+        "-c:v",
+        "copy",
+        "-bsf:v",
+        "hevc_mp4toannexb",
+        "-f",
+        "hevc",
+        str(target),
+    ]
+    started = monotonic()
+    command = run_command(argv, timeout=timeout)
+    if command.returncode != 0:
+        target.unlink(missing_ok=True)
+        diagnostic = command.stderr.strip() or command.stdout.strip() or "no diagnostic output"
+        raise RuntimeError(
+            f"FFmpeg elementary-stream extraction failed ({command.returncode}): {diagnostic}"
+        )
+
+    result: dict[str, object] = {
+        "schema_version": 1,
+        "stage": "elementary_stream",
+        "completed_at_utc": utc_now(),
+        "duration_seconds": round(monotonic() - started, 6),
+        "tool": {"name": "ffmpeg", "executable": str(FFMPEG)},
+        "command": command.to_dict(),
+        "summary": {
+            "size_bytes": target.stat().st_size,
+            "sha256": _sha256(target),
+        },
+        "outputs": {"annex_b": "elementary_stream/video.hevc"},
+    }
+    atomic_write_json(target_dir / "elementary_stream.json", result)
+    return result

@@ -1,0 +1,11 @@
+{
+  "profile_id": "macos_videotoolbox",
+  "description": "macOS FFmpeg HEVC decode through VideoToolbox",
+  "ffmpeg_args": [
+    "-hwaccel",
+    "videotoolbox"
+  ],
+  "requires": {
+    "hwaccel": "videotoolbox"
+  }
+}

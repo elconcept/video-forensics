@@ -1,0 +1,16 @@
+# Step 86: decouple shared HEVC models from the legacy POC parser
+
+This step begins consumer migration without removing any parser.
+
+The one-time executor extracts `BitReader`, `SPS`, and `PPS` from `hevc_poc.py` into the neutral module `hevc_models.py`. It rewrites direct consumers to import these shared primitives from the neutral module and leaves compatibility re-exports in `hevc_poc.py`.
+
+The executor is deliberately conservative:
+
+- it reads the actual repository source through Python AST
+- it aborts if any class is absent
+- it aborts if a moved class depends on an unhandled local symbol
+- it refuses unsupported multiline imports
+- it compiles every generated or modified Python file before completing
+- it verifies that no consumer still imports the moved symbols from `hevc_poc`
+
+This does not migrate `parse_sps`, `parse_pps`, `parse_first_slice`, `derive_poc`, or `analyze_poc`. Those remain later consumer-migration steps.

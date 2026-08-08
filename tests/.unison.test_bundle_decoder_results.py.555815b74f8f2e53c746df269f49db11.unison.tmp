@@ -1,0 +1,26 @@
+from __future__ import annotations
+
+import json
+import zipfile
+from pathlib import Path
+
+from video_forensics.native.bundle_decoder_results import build_bundle, sha256
+
+
+def test_build_bundle_preserves_files_and_manifest(tmp_path: Path) -> None:
+    root = tmp_path / "results"
+    run = root / "software_single_thread"
+    run.mkdir(parents=True)
+    source = run / "manifest.json"
+    source.write_text('{"status":"completed"}', encoding="utf-8")
+    bundle = tmp_path / "results.zip"
+
+    result = build_bundle(root, bundle)
+
+    assert result["file_count"] == 1
+    assert result["bundle_sha256"] == sha256(bundle)
+    assert bundle.with_suffix(".zip.sha256").is_file()
+    with zipfile.ZipFile(bundle) as archive:
+        assert "software_single_thread/manifest.json" in archive.namelist()
+        manifest = json.loads(archive.read("bundle_manifest.json"))
+    assert manifest["files"][0]["path"] == "software_single_thread/manifest.json"

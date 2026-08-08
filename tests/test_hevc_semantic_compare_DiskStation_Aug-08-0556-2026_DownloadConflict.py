@@ -1,0 +1,164 @@
+from __future__ import annotations
+
+from video_forensics.native.hevc_semantic_compare import compare, parse_ffmpeg_trace
+
+
+def primary() -> dict[str, object]:
+    return {
+        "nal_units": [
+            {
+                "nal_number": 1,
+                "nal_unit_type": 33,
+                "payload": {
+                    "sps": {
+                        "sps_seq_parameter_set_id": 0,
+                        "pic_width_in_luma_samples": 1920,
+                    }
+                },
+            },
+            {
+                "nal_number": 2,
+                "nal_unit_type": 34,
+                "payload": {"pps": {"pps_pic_parameter_set_id": 0}},
+            },
+        ]
+    }
+
+
+def test_semantic_comparison_matches_shared_fields() -> None:
+    legacy = {
+        "sps": [
+            {
+                "nal_number": 1,
+                "nal_unit_type": 33,
+                "fields": {
+                    "sps_seq_parameter_set_id": 0,
+                    "pic_width_in_luma_samples": 1920,
+                },
+            }
+        ],
+        "pps": [
+            {
+                "nal_number": 2,
+                "nal_unit_type": 34,
+                "fields": {"pps_pic_parameter_set_id": 0},
+            }
+        ],
+    }
+    result = compare(
+        primary(),
+        legacy,
+        "sps_seq_parameter_set_id 1 = 0\npps_pic_parameter_set_id 1 = 0\n",
+    )
+    assert result["field_mismatch_count"] == 0
+    assert result["legacy_semantic_agreement"] is True
+    assert result["authoritative_for_high_weight"] is True
+
+
+def test_ffmpeg_trace_parser_preserves_repeated_values() -> None:
+    parsed = parse_ffmpeg_trace(
+        "nal_unit_type 100001 = 33\nnal_unit_type 100010 = 34\n"
+    )
+    assert parsed["nal_unit_type"] == [33, 34]
+
+
+def test_rps_completeness_uses_stream_applicability() -> None:
+    primary_result = {
+        "nal_units": [
+            {
+                "nal_number": 1,
+                "nal_unit_type": 1,
+                "payload": {
+                    "slice_segment_layer": {
+                        "slice_segment_header": {
+                            "short_term_ref_pic_set_sps_flag": 1,
+                            "short_term_ref_pic_set_idx": 0,
+                        }
+                    }
+                },
+            }
+        ]
+    }
+    legacy_result = {
+        "records": [
+            {
+                "nal_number": 1,
+                "nal_unit_type": 1,
+                "kind": "slice",
+                "fields": {
+                    "short_term_ref_pic_set_sps_flag": 1,
+                    "short_term_ref_pic_set_idx": 0,
+                },
+            }
+        ]
+    }
+    result = compare(primary_result, legacy_result, "nal_unit_type 1 = 1\n")
+    assert result["rps_comparison_complete"] is True
+    assert result["rps_applicability"]["applicable_field_count"] == 2
+    assert result["rps_applicability"]["missing_in_primary"] == []
+    assert result["rps_applicability"]["missing_in_legacy"] == []
+
+
+def test_rps_completeness_fails_on_applicable_missing_field() -> None:
+    primary_result = {
+        "nal_units": [
+            {
+                "nal_number": 1,
+                "nal_unit_type": 1,
+                "payload": {
+                    "slice_segment_layer": {
+                        "short_term_ref_pic_set_sps_flag": 1,
+                        "short_term_ref_pic_set_idx": 0,
+                    }
+                },
+            }
+        ]
+    }
+    legacy_result = {
+        "records": [
+            {
+                "nal_number": 1,
+                "nal_unit_type": 1,
+                "kind": "slice",
+                "fields": {"short_term_ref_pic_set_sps_flag": 1},
+            }
+        ]
+    }
+    result = compare(primary_result, legacy_result, "nal_unit_type 1 = 1\n")
+    assert result["rps_comparison_complete"] is False
+    assert result["rps_applicability"]["missing_in_legacy"] == [
+        "short_term_ref_pic_set_idx"
+    ]
+
+
+def test_records_are_aligned_by_nal_number_and_kind() -> None:
+    primary_records = [
+        {"nal_number": 2, "kind": "sps", "fields": {"width": 1920}},
+        {"nal_number": 3, "kind": "pps", "fields": {"pps_id": 0}},
+        {"nal_number": 7, "kind": "slice", "fields": {"poc_lsb": 0}},
+    ]
+    legacy_records = [
+        {"nal_number": 2, "kind": "sps", "fields": {"width": 1920}},
+        {"nal_number": 7, "kind": "slice", "fields": {"poc_lsb": 0}},
+        {"nal_number": 3, "kind": "pps", "fields": {"pps_id": 0}},
+    ]
+    from video_forensics.native.hevc_semantic_compare import compare_fields
+
+    result = compare_fields(primary_records, legacy_records)
+    assert [item["nal_number"] for item in result] == [2, 3, 7]
+    assert all(item["status"] == "match" for item in result)
+    assert sum(item["mismatch_count"] for item in result) == 0
+
+
+def test_missing_vps_does_not_shift_following_records() -> None:
+    from video_forensics.native.hevc_semantic_compare import compare_fields
+
+    result = compare_fields(
+        [
+            {"nal_number": 1, "kind": "vps", "fields": {}},
+            {"nal_number": 2, "kind": "sps", "fields": {"width": 1920}},
+        ],
+        [{"nal_number": 2, "kind": "sps", "fields": {"width": 1920}}],
+    )
+    assert result[0]["status"] == "missing_legacy_record"
+    assert result[1]["status"] == "match"

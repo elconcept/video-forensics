@@ -1,0 +1,163 @@
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+from video_forensics import __version__
+from video_forensics.manifest import atomic_write_json, base_manifest, utc_now
+from video_forensics.pipeline import (
+    DEFAULT_STAGES,
+    parse_stages,
+    resolve_stages,
+    supported_stages,
+    validate_stage_options,
+)
+from video_forensics.tools import (
+    audio,
+    av_sync,
+    blending,
+    compression,
+    container_structure,
+    continuity,
+    duplicates,
+    extract_frames,
+    frame_metrics,
+    gop,
+    integrity,
+    metadata,
+    reference_compare,
+    report,
+    timeline,
+)
+
+SUPPORTED_STAGES = supported_stages()
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="video-forensics")
+    parser.add_argument("--version", action="version", version=__version__)
+    sub = parser.add_subparsers(dest="command")
+
+    analyze = sub.add_parser("analyze", help="run the forensic analysis pipeline")  
+    analyze.add_argument("video", type=Path)  
+    analyze.add_argument("--output", required=True, type=Path)  
+    analyze.add_argument("--reference-output", type=Path)  
+    analyze.add_argument(  
+        "--stages",  
+        default=",".join(DEFAULT_STAGES),  
+        help="comma-separated stages; supported: " + ", ".join(SUPPORTED_STAGES),  
+)  
+
+    sub.add_parser("tools", help="list available analytical tools")  
+    return parser  
+
+
+def run_analysis(
+    video: Path,
+    output: Path,
+    stages: list[str],
+    reference_output: Path | None = None,
+) -> int:
+    video = video.expanduser().resolve(strict=True)
+    output = output.expanduser().resolve()
+    output.mkdir(parents=True, exist_ok=True)
+
+    manifestation = base_manifest(video, sys.argv, __version__)  
+    manifest_path = output / "manifest.json"  
+    atomic_write_json(manifest_path, manifestation)  
+
+    try:  
+        if "integrity" in stages:  
+            manifestation["stages"]["integrity"] = integrity.analyze(video, output)  
+        if "metadata" in stages:  
+            metadata_result = metadata.analyze(video, output)  
+            manifestation["stages"]["metadata"] = metadata_result  
+            manifestation["tools"].update(metadata_result["tools"])  
+        if "container_structure" in stages:  
+            manifestation["stages"]["container_structure"] = (  
+                container_structure.analyze(video, output)  
+            )  
+        if "timeline" in stages:  
+            manifestation["stages"]["timeline"] = timeline.analyze(video, output)  
+        if "gop" in stages:  
+            manifestation["stages"]["gop"] = gop.analyze(video, output)  
+        if "frame_metrics" in stages:  
+            manifestation["stages"]["frame_metrics"] = frame_metrics.analyze(  
+                video, output  
+        )  
+        if "continuity" in stages:  
+            manifestation["stages"]["continuity"] = continuity.analyze(  
+                video, output  
+            )  
+        if "duplicates" in stages:  
+            manifestation["stages"]["duplicates"] = duplicates.analyze(video, output)  
+        if "blending" in stages:  
+            manifestation["stages"]["blending"] = blending.analyze(video, output)  
+        if "compression" in stages:  
+            manifestation["stages"]["compression"] = compression.analyze(  
+                video, output  
+            )  
+        if "audio" in stages:  
+            manifestation["stages"]["audio"] = audio.analyze(video, output)  
+        if "av_sync" in stages:  
+            manifestation["stages"]["av_sync"] = av_sync.analyze(video, output)  
+        if "extract_frames" in stages:  
+            manifestation["stages"]["extract_frames"] = extract_frames.analyze(  
+                video, output  
+            )  
+        if "reference_compare" in stages:  
+            manifestation["stages"]["reference_compare"] = reference_compare.analyze(  
+                video,  
+                output,  
+                reference_output=reference_output,  
+            )  
+
+        manifestation["run"]["status"] = "completed"  
+        manifestation["run"]["completed_at_utc"] = utc_now()  
+        atomic_write_json(manifest_path, manifestation)  
+
+        if "report" in stages:  
+            manifestation["stages"]["report"] = report.analyze(video, output)  
+
+        return 0  
+    except Exception as exc:  
+        manifestation["run"]["status"] = "failed"  
+        manifestation["run"]["completed_at_utc"] = utc_now()  
+        manifestation["run"]["error"] = {  
+            "type": type(exc).__name__,  
+            "message": str(exc),  
+        }  
+        raise  
+    finally:  
+        atomic_write_json(manifest_path, manifestation)  
+
+
+def main() -> int:
+    parser = build_parser()
+    args = parser.parse_args()
+
+    if args.command is None:  
+        parser.print_help()  
+        return 0  
+
+    if args.command == "tools":  
+        print("\n".join(SUPPORTED_STAGES))  
+        return 0  
+
+    try:  
+        requested = parse_stages(args.stages)  
+        stages = resolve_stages(requested)  
+        validate_stage_options(stages, args.reference_output)  
+        return run_analysis(  
+            args.video,  
+            args.output,  
+            stages,  
+            args.reference_output,  
+        )  
+    except (FileNotFoundError, PermissionError, ValueError, RuntimeError) as exc:  
+        print(f"ERROR: {exc}", file=sys.stderr)  
+        return 2  
+
+
+if __name__ == "__main__":  
+    raise SystemExit(main())

@@ -1,0 +1,9 @@
+from __future__ import annotations
+
+import importlib.metadata
+
+import video_forensics
+
+
+def test_runtime_and_package_versions_match() -> None:
+    assert importlib.metadata.version("video-forensics") == video_forensics.__version__

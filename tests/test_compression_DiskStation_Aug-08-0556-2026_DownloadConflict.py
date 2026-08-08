@@ -1,0 +1,41 @@
+from __future__ import annotations
+
+from video_forensics.tools.compression import _findings, _window_rows
+
+
+def _rows(values: list[int]) -> list[dict[str, str]]:
+    return [
+        {
+            "frame_number": str(index),
+            "pkt_size": str(value),
+            "pict_type": "P",
+        }
+        for index, value in enumerate(values, start=1)
+    ]
+
+
+def test_window_rows_calculates_packet_statistics() -> None:
+    windows = _window_rows(_rows([10, 20, 30, 40]), window_size=2)
+    assert len(windows) == 2
+    assert windows[0]["packet_size_median"] == 15.0
+    assert windows[1]["start_frame"] == 3
+
+
+def test_findings_detects_extreme_packet_size_regime() -> None:
+    windows = [
+        {"window_number": 1, "start_frame": 1, "end_frame": 30, "packet_size_count": 30, "packet_size_median": 100.0},
+        {"window_number": 2, "start_frame": 31, "end_frame": 60, "packet_size_count": 30, "packet_size_median": 101.0},
+        {"window_number": 3, "start_frame": 61, "end_frame": 90, "packet_size_count": 30, "packet_size_median": 99.0},
+        {"window_number": 4, "start_frame": 91, "end_frame": 120, "packet_size_count": 30, "packet_size_median": 1000.0},
+    ]
+    findings = _findings(windows)
+    assert len(findings) == 1
+    assert findings[0]["window_number"] == 4
+
+
+def test_findings_returns_empty_for_constant_windows() -> None:
+    windows = [
+        {"window_number": index, "start_frame": 1, "end_frame": 30, "packet_size_count": 30, "packet_size_median": 100.0}
+        for index in range(1, 5)
+    ]
+    assert _findings(windows) == []

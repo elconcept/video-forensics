@@ -1,0 +1,56 @@
+from __future__ import annotations
+
+import json
+import zipfile
+from pathlib import Path
+
+import pytest
+
+from video_forensics.native.import_decoder_bundles import import_bundle, sha256
+
+
+def make_bundle(tmp_path: Path, tamper_checksum: bool = False) -> Path:
+    bundle = tmp_path / "machine.zip"
+    content = b'{"status":"completed"}'
+    manifest = {
+        "schema_version": 1,
+        "file_count": 1,
+        "files": [
+            {
+                "path": "software/manifest.json",
+                "size_bytes": len(content),
+                "sha256": __import__("hashlib").sha256(content).hexdigest(),
+            }
+        ],
+    }
+    with zipfile.ZipFile(bundle, "w") as archive:
+        archive.writestr("software/manifest.json", content)
+        archive.writestr("bundle_manifest.json", json.dumps(manifest))
+    checksum = "0" * 64 if tamper_checksum else sha256(bundle)
+    bundle.with_suffix(".zip.sha256").write_text(
+        f"{checksum}  {bundle.name}\n", encoding="ascii"
+    )
+    return bundle
+
+
+def test_imports_verified_bundle(tmp_path: Path) -> None:
+    bundle = make_bundle(tmp_path)
+    receipt = import_bundle(bundle, tmp_path / "merged", "x1_intel")
+    imported = tmp_path / "merged" / "x1_intel"
+    assert receipt["source_id"] == "x1_intel"
+    assert (imported / "software" / "manifest.json").is_file()
+    assert (imported / "import_receipt.json").is_file()
+
+
+def test_rejects_invalid_external_checksum(tmp_path: Path) -> None:
+    bundle = make_bundle(tmp_path, tamper_checksum=True)
+    with pytest.raises(ValueError, match="bundle SHA-256 mismatch"):
+        import_bundle(bundle, tmp_path / "merged", "x1_intel")
+
+
+def test_rejects_duplicate_source_id(tmp_path: Path) -> None:
+    bundle = make_bundle(tmp_path)
+    destination = tmp_path / "merged"
+    import_bundle(bundle, destination, "x1_intel")
+    with pytest.raises(FileExistsError):
+        import_bundle(bundle, destination, "x1_intel")

@@ -1,0 +1,438 @@
+# video-forensics
+
+Narzędzie do powtarzalnej analizy plików wideo na natywnych hostach Linux, Windows i macOS. Zapisuje obserwacje, logi, parametry, sumy kontrolne oraz wyniki wielu dekoderów. Nie wydaje werdyktu o autentyczności nagrania.
+
+## 1. Wymagania wspólne
+
+- Python 3.12
+- FFmpeg i FFprobe dostępne w `PATH`
+- repozytorium sklonowane lokalnie
+- terminal uruchomiony w katalogu głównym projektu
+- plik źródłowy przechowywany poza katalogiem wyników
+
+Opcjonalnie:
+
+- `dec265` lub `de265dec`
+- Tesseract
+- ExifTool
+- MediaInfo
+- Bento4 `mp4dump`
+- GPAC `MP4Box`
+
+## 2. Pierwsza instalacja
+
+### Linux i macOS
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e '.[dev]'
+```
+
+### Windows PowerShell
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+```
+
+Po każdym dodaniu nowego punktu wejścia do `pyproject.toml`:
+
+```bash
+python -m pip install -e '.[dev]'
+```
+
+## 3. Układ katalogów roboczych
+
+Przykład:
+
+```text
+work/
+├── evidence/
+│   └── 1796.mp4
+└── results/
+```
+
+Nie zapisuj wyników do katalogu `evidence`.
+
+# Uruchomienie na poszczególnych maszynach
+
+## 4. Ubuntu bare metal: Ryzen 5500 + Quadro P600
+
+Dostępne ścieżki: software single-thread, software automatic-thread, NVDEC/CUDA, VAAPI, opcjonalnie libde265.
+
+### Krok 1. Aktywuj środowisko
+
+```bash
+source .venv/bin/activate
+```
+
+### Krok 2. Zapisz profil hosta
+
+```bash
+video-forensics-host-profile \
+  --output results/ubuntu_p600_host_profile.json
+```
+
+### Krok 3. Uruchom analizę bazową
+
+```bash
+video-forensics analyze evidence/1796.mp4 \
+  --output results/ubuntu_p600_baseline
+```
+
+### Krok 4. Uruchom lokalną macierz dekoderów
+
+```bash
+video-forensics-run-matrix evidence/1796.mp4 \
+  --output results/ubuntu_p600_matrix
+```
+
+### Krok 5. Wyeksportuj wszystkie klatki do oględzin
+
+```bash
+video-forensics-export-visual-frames evidence/1796.mp4 \
+  --host-profile results/ubuntu_p600_host_profile.json \
+  --profile profiles/decoder_matrix/software_single_thread.json \
+  --profile profiles/decoder_matrix/software_automatic_threads.json \
+  --profile profiles/decoder_matrix/linux_nvdec.json \
+  --profile profiles/decoder_matrix/linux_vaapi.json \
+  --output results/ubuntu_p600_frames
+```
+
+### Krok 6. Utwórz pakiet wyników
+
+```bash
+python -m video_forensics.native.bundle_decoder_results \
+  results/ubuntu_p600_matrix \
+  --output results/ubuntu_p600_matrix.zip
+```
+
+Przenieś razem:
+
+- `ubuntu_p600_matrix.zip`
+- `ubuntu_p600_matrix.zip.sha256`
+
+## 5. Lenovo X1 Carbon: Intel 8. generacji, Linux
+
+Dostępne ścieżki: software single-thread, software automatic-thread, QSV, VAAPI, opcjonalnie libde265.
+
+### Krok 1. Aktywuj środowisko
+
+```bash
+source .venv/bin/activate
+```
+
+### Krok 2. Zapisz profil hosta
+
+```bash
+video-forensics-host-profile \
+  --output results/x1_linux_host_profile.json
+```
+
+### Krok 3. Uruchom macierz
+
+```bash
+video-forensics-run-matrix evidence/1796.mp4 \
+  --output results/x1_linux_matrix
+```
+
+### Krok 4. Wyeksportuj klatki
+
+```bash
+video-forensics-export-visual-frames evidence/1796.mp4 \
+  --host-profile results/x1_linux_host_profile.json \
+  --profile profiles/decoder_matrix/software_single_thread.json \
+  --profile profiles/decoder_matrix/software_automatic_threads.json \
+  --profile profiles/decoder_matrix/linux_qsv.json \
+  --profile profiles/decoder_matrix/linux_vaapi.json \
+  --output results/x1_linux_frames
+```
+
+### Krok 5. Spakuj wyniki
+
+```bash
+python -m video_forensics.native.bundle_decoder_results \
+  results/x1_linux_matrix \
+  --output results/x1_linux_matrix.zip
+```
+
+## 6. Lenovo X1 Carbon: Intel 8. generacji, Windows 11
+
+Dostępne ścieżki: software single-thread, software automatic-thread, Intel QSV i Intel D3D11VA.
+
+### Krok 1. Aktywuj środowisko
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+### Krok 2. Uruchom launcher
+
+```powershell
+powershell -ExecutionPolicy Bypass -File launchers/run_windows_matrix.ps1 `
+  -Platform intel `
+  -Video C:\evidence\1796.mp4 `
+  -Output C:\results\x1_intel `
+  -Ffmpeg C:\ffmpeg\bin\ffmpeg.exe `
+  -Ffprobe C:\ffmpeg\bin\ffprobe.exe
+```
+
+Launcher uruchamia profile programowe i intelowskie, a następnie tworzy pakiet ZIP z sumą SHA-256.
+
+### Krok 3. Skopiuj na maszynę zbiorczą
+
+Skopiuj:
+
+```text
+C:\results\x1_intel.zip
+C:\results\x1_intel.zip.sha256
+```
+
+## 7. H110: Intel i3-6300 + GTX 960, Windows 11
+
+Dostępne ścieżki: software single-thread, software automatic-thread, NVIDIA D3D11VA i NVIDIA CUDA/NVDEC. Intel D3D11VA należy uruchomić oddzielnym profilem, jeśli adapter jest dostępny w lokalnej konfiguracji FFmpeg.
+
+### Krok 1. Aktywuj środowisko
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+### Krok 2. Uruchom profile NVIDIA
+
+```powershell
+powershell -ExecutionPolicy Bypass -File launchers/run_windows_matrix.ps1 `
+  -Platform nvidia `
+  -Video C:\evidence\1796.mp4 `
+  -Output C:\results\h110_gtx960 `
+  -Ffmpeg C:\ffmpeg\bin\ffmpeg.exe `
+  -Ffprobe C:\ffmpeg\bin\ffprobe.exe
+```
+
+### Krok 3. Skopiuj wyniki
+
+```text
+C:\results\h110_gtx960.zip
+C:\results\h110_gtx960.zip.sha256
+```
+
+## 8. MacBook Air M4
+
+Dostępne ścieżki: software single-thread, software automatic-thread, VideoToolbox, opcjonalnie libde265. Natywna ścieżka AVFoundation wymaga oddzielnego runnera.
+
+### Krok 1. Aktywuj środowisko
+
+```bash
+source .venv/bin/activate
+```
+
+### Krok 2. Zapisz profil hosta
+
+```bash
+video-forensics-host-profile \
+  --output results/m4_host_profile.json
+```
+
+### Krok 3. Uruchom macierz
+
+```bash
+video-forensics-run-matrix evidence/1796.mp4 \
+  --output results/m4_matrix
+```
+
+### Krok 4. Wyeksportuj klatki
+
+```bash
+video-forensics-export-visual-frames evidence/1796.mp4 \
+  --host-profile results/m4_host_profile.json \
+  --profile profiles/decoder_matrix/software_single_thread.json \
+  --profile profiles/decoder_matrix/software_automatic_threads.json \
+  --profile profiles/decoder_matrix/macos_videotoolbox.json \
+  --output results/m4_frames
+```
+
+### Krok 5. Spakuj wyniki
+
+```bash
+python -m video_forensics.native.bundle_decoder_results \
+  results/m4_matrix \
+  --output results/m4_matrix.zip
+```
+
+# Scalanie wyników
+
+## 9. Import pakietów z hostów
+
+Na głównej maszynie analitycznej:
+
+```bash
+python -m video_forensics.native.import_decoder_bundles \
+  results/ubuntu_p600_matrix.zip \
+  --destination results/1796_merged \
+  --source-id ubuntu_p600
+
+python -m video_forensics.native.import_decoder_bundles \
+  results/x1_intel.zip \
+  --destination results/1796_merged \
+  --source-id x1_intel
+
+python -m video_forensics.native.import_decoder_bundles \
+  results/h110_gtx960.zip \
+  --destination results/1796_merged \
+  --source-id h110_gtx960
+
+python -m video_forensics.native.import_decoder_bundles \
+  results/m4_matrix.zip \
+  --destination results/1796_merged \
+  --source-id macbook_m4
+```
+
+Każdy `source-id` musi być unikalny.
+
+## 10. Przygotuj widoki porównawcze
+
+```bash
+python -m video_forensics.native.prepare_comparison_views \
+  results/1796_merged \
+  --output results/1796_views
+```
+
+## 11. Porównaj wyniki dekoderów
+
+```bash
+python -m video_forensics.native.compare_decoder_runs \
+  results/1796_views/decoder \
+  --output results/1796_decoder_comparison
+
+python -m video_forensics.native.compare_perceptual_runs \
+  results/1796_views/perceptual \
+  --output results/1796_perceptual_comparison
+```
+
+## 12. Utwórz ustalenia macierzy
+
+```bash
+video-forensics-decoder-matrix-report \
+  results/1796_decoder_comparison/decoder_matrix.json \
+  --perceptual results/1796_perceptual_comparison/perceptual_comparison.json \
+  --output results/1796_decoder_findings
+```
+
+# Odzysk osieroconego ogona HEVC
+
+## 13. Wyodrębnij Annex B
+
+```bash
+ffmpeg -nostdin -v error \
+  -i evidence/1796.mp4 \
+  -map 0:v:0 -c:v copy \
+  -bsf:v hevc_mp4toannexb \
+  -f hevc results/1796.h265
+```
+
+## 14. Uruchom analizę HEVC
+
+```bash
+video-forensics analyze evidence/1796.mp4 \
+  --output results/1796_hevc \
+  --stages integrity,elementary_stream,hevc_bitstream
+```
+
+Sprawdź:
+
+```text
+poc_analysis.json
+pictures.csv
+orphan_plan_draft.json
+```
+
+## 15. Zatwierdź plan
+
+```bash
+video-forensics-review-orphan-plan results/1796.h265 \
+  --draft results/1796_hevc/hevc_bitstream/orphan_plan_draft.json \
+  --output results/orphan_plan_approved.json \
+  --reviewer "T. K." \
+  --rationale "Numery NAL, zestawy parametrów, IDR oraz granice ogona sprawdzono z nal_units.csv i poc_analysis.json"
+```
+
+## 16. Uruchom odzysk
+
+```bash
+video-forensics-orphan-pipeline results/1796.h265 \
+  --plan results/orphan_plan_approved.json \
+  --output results/1796_orphan_recovery \
+  --host-profile results/ubuntu_p600_host_profile.json
+```
+
+Bez wyniku niezależnego dekodera etap raportowy pozostanie `pending`.
+
+# Materiał do oględzin i wysyłki
+
+## 17. Utwórz pakiet JPEG do wysyłki
+
+```bash
+video-forensics-submission-bundle results/ubuntu_p600_frames \
+  --output results/1796_review_email.zip
+```
+
+Prześlij razem:
+
+```text
+1796_review_email.zip
+1796_review_email.zip.sha256
+```
+
+Pakiet zawiera skompresowane kopie do przeglądu. Bezstratne PNG pozostają w katalogu `lossless` i mogą zostać przekazane na żądanie.
+
+# Dodatkowe analizy obrazu
+
+## 18. Statyczne regiony
+
+```bash
+video-forensics-static-region-motion \
+  results/ubuntu_p600_frames/lossless/<host>__<decoder> \
+  --output results/1796_static_regions
+
+video-forensics-static-region-series \
+  results/1796_static_regions/pairs.json \
+  --frames-root results/ubuntu_p600_frames/lossless/<host>__<decoder> \
+  --output results/1796_static_region_series
+```
+
+## 19. Znacznik czasu OSD
+
+```bash
+video-forensics-osd-reader \
+  results/ubuntu_p600_frames/lossless/<host>__<decoder> \
+  --output results/1796_osd \
+  --crop X Y WIDTH HEIGHT
+
+video-forensics-decoder-frame-timestamps evidence/1796.mp4 \
+  --profile profiles/decoder_matrix/software_single_thread.json \
+  --output results/1796_frame_timestamps
+
+video-forensics-osd-timeline \
+  results/1796_osd/osd_reader.json \
+  --pts-csv results/1796_frame_timestamps/frame_timestamps.csv \
+  --output results/1796_osd_timeline
+```
+
+# Minimalna kontrola wyników
+
+Po każdym przebiegu sprawdź:
+
+1. SHA-256 wejścia w manifeście.
+2. `host_profile_id`.
+3. status każdego profilu.
+4. kod zakończenia dekodera.
+5. pełny `stderr.txt`.
+6. liczbę klatek.
+7. pierwszą rozbieżność.
+8. obecność komunikatów o brakujących referencjach.
+
+Nie traktuj nazwy profilu jako dowodu użycia akceleracji sprzętowej. Nie traktuj zgodności dekoderów jako werdyktu o autentyczności.

@@ -1,0 +1,34 @@
+from __future__ import annotations
+
+import numpy as np
+
+from video_forensics.native.playback_divergence import calibrate, ncc
+
+
+def test_ncc_identical_and_offset() -> None:
+    left = np.arange(100, dtype=np.float64).reshape(10, 10)
+    assert ncc(left, left.copy()) == 1.0
+    assert ncc(left, left + 20.0) == 1.0
+
+
+def test_calibration_finds_exact_crop() -> None:
+    reference = np.arange(24, dtype=np.float64).reshape(4, 6) * 10
+    screen = np.zeros((12, 16), dtype=np.float64)
+    screen[3:7, 5:11] = reference
+    result = calibrate(
+        screen,
+        reference,
+        x_min=4,
+        x_max=6,
+        y_min=2,
+        y_max=4,
+        width_min=6,
+        width_max=6,
+        step=1,
+        aspect_ratio=1.5,
+    )
+    assert result["x"] == 5
+    assert result["y"] == 3
+    assert result["width"] == 6
+    assert result["height"] == 4
+    assert result["ncc"] == 1.0

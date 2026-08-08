@@ -1,0 +1,216 @@
+from __future__ import annotations
+
+import hashlib
+import itertools
+import subprocess
+from collections import defaultdict
+from collections.abc import Iterator
+from pathlib import Path
+from time import monotonic
+
+import numpy as np
+
+from video_forensics.manifest import atomic_write_json, utc_now
+
+FFMPEG = Path("/usr/bin/ffmpeg")
+WIDTH = 64
+HEIGHT = 36
+FRAME_BYTES = WIDTH * HEIGHT
+NEAR_DUPLICATE_HAMMING_LIMIT = 3
+MIN_SEQUENCE_LENGTH = 2
+
+
+def _frame_stream(video: Path, *, timeout: int = 3600) -> Iterator[np.ndarray]:
+    argv = [
+        str(FFMPEG),
+        "-nostdin",
+        "-v",
+        "error",
+        "-i",
+        str(video),
+        "-map",
+        "0:v:0",
+        "-vf",
+        f"scale={WIDTH}:{HEIGHT}:flags=area,format=gray",
+        "-vsync",
+        "0",
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "gray",
+        "-",
+    ]
+    process = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if process.stdout is None or process.stderr is None:
+        process.kill()
+        raise RuntimeError("failed to open FFmpeg pipes")
+
+    started = monotonic()
+    try:
+        while True:
+            if monotonic() - started > timeout:
+                process.kill()
+                raise TimeoutError(f"FFmpeg duplicate analysis exceeded {timeout} seconds")
+            data = process.stdout.read(FRAME_BYTES)
+            if not data:
+                break
+            if len(data) != FRAME_BYTES:
+                process.kill()
+                raise RuntimeError(
+                    f"incomplete decoded frame: expected {FRAME_BYTES} bytes, got {len(data)}"
+                )
+            yield np.frombuffer(data, dtype=np.uint8).reshape(HEIGHT, WIDTH)
+    finally:
+        process.stdout.close()
+
+    stderr = process.stderr.read().decode("utf-8", errors="replace")
+    process.stderr.close()
+    returncode = process.wait()
+    if returncode != 0:
+        diagnostic = stderr.strip() or "no diagnostic output"
+        raise RuntimeError(f"FFmpeg duplicate analysis failed ({returncode}): {diagnostic}")
+
+
+def _difference_hash(frame: np.ndarray) -> int:
+    sampled = frame[:, :33]
+    comparisons = sampled[:, 1:] >= sampled[:, :-1]
+    value = 0
+    for bit in comparisons.ravel():
+        value = (value << 1) | int(bit)
+    return value
+
+
+def _hamming(left: int, right: int) -> int:
+    return (left ^ right).bit_count()
+
+
+def _fingerprints(video: Path, *, timeout: int = 3600) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for frame_number, frame in enumerate(_frame_stream(video, timeout=timeout), start=1):
+        rows.append(
+            {
+                "frame_number": frame_number,
+                "sha256": hashlib.sha256(frame.tobytes()).hexdigest(),
+                "difference_hash": format(_difference_hash(frame), "0288x"),
+            }
+        )
+    return rows
+
+
+def _exact_groups(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    grouped: dict[str, list[int]] = defaultdict(list)
+    for row in rows:
+        grouped[str(row["sha256"])].append(int(row["frame_number"]))
+    return [
+        {"kind": "exact_duplicate_group", "sha256": digest, "frames": frames}
+        for digest, frames in sorted(grouped.items())
+        if len(frames) > 1
+    ]
+
+
+def _near_adjacent(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    findings: list[dict[str, object]] = []
+    for previous, current in itertools.pairwise(rows):
+        left = int(str(previous["difference_hash"]), 16)
+        right = int(str(current["difference_hash"]), 16)
+        distance = _hamming(left, right)
+        if distance <= NEAR_DUPLICATE_HAMMING_LIMIT:
+            findings.append(
+                {
+                    "kind": "near_duplicate_adjacent_frames",
+                    "first_frame": previous["frame_number"],
+                    "second_frame": current["frame_number"],
+                    "hamming_distance": distance,
+                }
+            )
+    return findings
+
+
+def _repeated_sequences(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    hashes = [str(row["sha256"]) for row in rows]
+    positions: dict[str, list[int]] = defaultdict(list)
+    for index, digest in enumerate(hashes):
+        positions[digest].append(index)
+
+    sequences: list[dict[str, object]] = []
+    seen: set[tuple[int, int, int]] = set()
+    for candidates in positions.values():
+        for left_position, left in enumerate(candidates):
+            for right in candidates[left_position + 1 :]:
+                if right <= left:
+                    continue
+                length = 0
+                while (
+                    left + length < len(hashes)
+                    and right + length < len(hashes)
+                    and hashes[left + length] == hashes[right + length]
+                ):
+                    length += 1
+                if length < MIN_SEQUENCE_LENGTH:
+                    continue
+                key = (left, right, length)
+                if key in seen:
+                    continue
+                seen.add(key)
+                sequences.append(
+                    {
+                        "kind": "repeated_exact_sequence",
+                        "first_start_frame": left + 1,
+                        "second_start_frame": right + 1,
+                        "length_frames": length,
+                    }
+                )
+    return sorted(
+        sequences,
+        key=lambda item: (
+            -int(item["length_frames"]),
+            int(item["first_start_frame"]),
+            int(item["second_start_frame"]),
+        ),
+    )
+
+
+def analyze(video: Path, output_dir: Path, *, timeout: int = 3600) -> dict[str, object]:
+    video = video.resolve(strict=True)
+    if not video.is_file():
+        raise ValueError(f"input is not a regular file: {video}")
+    if not FFMPEG.is_file():
+        raise FileNotFoundError(f"required executable not found: {FFMPEG}")
+
+    started = monotonic()
+    rows = _fingerprints(video, timeout=timeout)
+    exact = _exact_groups(rows)
+    adjacent = _near_adjacent(rows)
+    sequences = _repeated_sequences(rows)
+
+    findings = [*exact, *adjacent, *sequences]
+    atomic_write_json(output_dir / "duplicates" / "fingerprints.json", rows)
+    atomic_write_json(output_dir / "duplicates" / "findings.json", findings)
+
+    result: dict[str, object] = {
+        "schema_version": 1,
+        "stage": "duplicates",
+        "completed_at_utc": utc_now(),
+        "duration_seconds": round(monotonic() - started, 6),
+        "tool": {"name": "ffmpeg", "executable": str(FFMPEG)},
+        "analysis_geometry": {"width": WIDTH, "height": HEIGHT, "pixel_format": "gray"},
+        "method": {
+            "exact_fingerprint": "SHA-256 of normalized decoded grayscale frame",
+            "near_fingerprint": "1152-bit horizontal difference hash",
+            "near_adjacent_hamming_limit": NEAR_DUPLICATE_HAMMING_LIMIT,
+            "minimum_repeated_sequence_length": MIN_SEQUENCE_LENGTH,
+        },
+        "summary": {
+            "frame_count": len(rows),
+            "exact_duplicate_group_count": len(exact),
+            "near_adjacent_pair_count": len(adjacent),
+            "repeated_exact_sequence_count": len(sequences),
+            "finding_count": len(findings),
+        },
+        "outputs": {
+            "fingerprints": "duplicates/fingerprints.json",
+            "findings": "duplicates/findings.json",
+        },
+    }
+    atomic_write_json(output_dir / "duplicates" / "duplicates.json", result)
+    return result

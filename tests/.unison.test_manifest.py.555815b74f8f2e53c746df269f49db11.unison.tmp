@@ -1,0 +1,13 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from video_forensics.manifest import atomic_write_json
+
+
+def test_atomic_write_json(tmp_path: Path) -> None:
+    target = tmp_path / "nested" / "manifest.json"
+    atomic_write_json(target, {"b": 2, "a": 1})
+    assert json.loads(target.read_text()) == {"a": 1, "b": 2}
+    assert not list(target.parent.glob(".manifest.json.tmp-*"))

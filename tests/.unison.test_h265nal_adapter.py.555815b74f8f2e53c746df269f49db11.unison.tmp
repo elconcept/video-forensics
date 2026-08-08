@@ -1,0 +1,53 @@
+from __future__ import annotations
+
+from video_forensics.native.h265nal_adapter import normalize_nal, parse_brace_dump
+
+DUMP = """h265nal: original version
+nal_unit {
+  offset: 0x00000004
+  length: 23
+  nal_unit_header {
+    forbidden_zero_bit: 0
+    nal_unit_type: 33
+    nuh_layer_id: 0
+    nuh_temporal_id_plus1: 1
+  }
+  nal_unit_payload {
+    sps {
+      sps_seq_parameter_set_id: 0
+      pic_width_in_luma_samples: 1920
+    }
+  }
+}
+nal_unit {
+  offset: 31
+  length: 10
+  nal_unit_header {
+    nal_unit_type: 1
+  }
+  nal_unit_payload {
+    slice_segment_layer {
+      slice_segment_header {
+        delta_poc_s0_minus1 { 2 4 2 }
+      }
+    }
+  }
+}
+"""
+
+
+def test_parse_brace_dump_preserves_nested_fields() -> None:
+    roots = parse_brace_dump(DUMP)
+    assert len(roots) == 2
+    first = normalize_nal(roots[0], 1)
+    assert first["offset"] == 4
+    assert first["length"] == 23
+    assert first["header"]["nal_unit_type"] == 33
+    assert first["payload"]["sps"]["pic_width_in_luma_samples"] == 1920
+
+
+def test_parse_array_values() -> None:
+    roots = parse_brace_dump(DUMP)
+    second = normalize_nal(roots[1], 2)
+    values = second["payload"]["slice_segment_layer"]["slice_segment_header"]
+    assert values["delta_poc_s0_minus1"] == [2, 4, 2]

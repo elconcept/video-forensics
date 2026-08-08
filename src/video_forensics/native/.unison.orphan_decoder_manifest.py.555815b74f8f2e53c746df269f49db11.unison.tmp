@@ -1,0 +1,148 @@
+from __future__ import annotations
+
+import csv
+import hashlib
+import json
+from pathlib import Path
+from typing import Any
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(8 * 1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def build_variant_manifest(
+    variant_root: Path,
+    *,
+    decoder_id: str,
+    variant_id: str,
+    reference_nal_number: int,
+    source_path: Path,
+    source_sha256: str,
+    host_profile_id: str | None,
+) -> dict[str, object]:
+    frames_root = variant_root / "frames"
+    sequence_path = frames_root / "yuv_png_sequence.json"
+    sequence = json.loads(sequence_path.read_text(encoding="utf-8"))
+    if not isinstance(sequence, dict):
+        raise TypeError(f"expected JSON object: {sequence_path}")
+    source_frames = sequence.get("frames")
+    if not isinstance(source_frames, list):
+        raise TypeError("YUV sequence manifest has no frames list")
+
+    frames: list[dict[str, object]] = []
+    for expected_number, row in enumerate(source_frames, start=1):
+        if not isinstance(row, dict):
+            raise TypeError("YUV sequence frame row must be an object")
+        frame_number = int(row["frame_number"])
+        if frame_number != expected_number:
+            raise ValueError(
+                f"non-contiguous frame number: {frame_number} != {expected_number}"
+            )
+        filename = str(row["filename"])
+        frame_path = frames_root / filename
+        frame_path.resolve(strict=True)
+        expected_hash = str(row["png_sha256"]).lower()
+        actual_hash = sha256(frame_path)
+        if actual_hash != expected_hash:
+            raise ValueError(f"PNG SHA-256 mismatch: {frame_path}")
+        frames.append(
+            {
+                "frame_number": frame_number,
+                "filename": filename,
+                "path": str(frame_path),
+                "size_bytes": frame_path.stat().st_size,
+                "sha256": actual_hash,
+                "source_frame_index": int(row["source_frame_index"]),
+                "source_offset": int(row["source_offset"]),
+                "source_frame_sha256": str(row["source_frame_sha256"]),
+            }
+        )
+
+    manifest: dict[str, object] = {
+        "schema_version": 1,
+        "module": "orphan_decoder_variant",
+        "decoder_id": decoder_id,
+        "variant_id": variant_id,
+        "reference_nal_number": reference_nal_number,
+        "status": "completed",
+        "host_profile": host_profile_id,
+        "source": {
+            "path": str(source_path),
+            "sha256": source_sha256,
+        },
+        "frame_directory": str(frames_root),
+        "frame_count": len(frames),
+        "frames": frames,
+        "ordering": {
+            "type": "decoder_output_order",
+            "first_frame_number": 1 if frames else None,
+            "last_frame_number": len(frames) if frames else None,
+            "contiguous": True,
+        },
+    }
+    manifest_path = variant_root / "decoder_manifest.json"
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    columns = [
+        "frame_number",
+        "filename",
+        "path",
+        "size_bytes",
+        "sha256",
+        "source_frame_index",
+        "source_offset",
+        "source_frame_sha256",
+    ]
+    with (variant_root / "frames.csv").open(
+        "w", encoding="utf-8", newline=""
+    ) as handle:
+        writer = csv.DictWriter(handle, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(frames)
+    return manifest
+
+
+def build_decoder_root_manifest(
+    output: Path,
+    variants: list[dict[str, Any]],
+    *,
+    decoder_id: str,
+    host_profile_id: str | None,
+) -> dict[str, object]:
+    rows: list[dict[str, object]] = []
+    for variant in variants:
+        variant_id = str(variant["variant_id"])
+        variant_root = output / variant_id
+        manifest_path = variant_root / "decoder_manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        rows.append(
+            {
+                "variant_id": variant_id,
+                "reference_nal_number": int(variant["reference_nal_number"]),
+                "status": str(manifest["status"]),
+                "frame_count": int(manifest["frame_count"]),
+                "manifest": str(manifest_path),
+                "frames": str(variant_root / "frames"),
+            }
+        )
+    root_manifest: dict[str, object] = {
+        "schema_version": 1,
+        "module": "orphan_decoder_root",
+        "decoder_id": decoder_id,
+        "host_profile": host_profile_id,
+        "status": "completed" if all(row["status"] == "completed" for row in rows) else "failed",
+        "variant_count": len(rows),
+        "variants": rows,
+    }
+    (output / "manifest.json").write_text(
+        json.dumps(root_manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return root_manifest

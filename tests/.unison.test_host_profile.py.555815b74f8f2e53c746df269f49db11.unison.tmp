@@ -1,0 +1,15 @@
+from __future__ import annotations
+
+from video_forensics.native.host_profile import stable_profile_id
+
+
+def test_stable_profile_id_ignores_capture_time() -> None:
+    first = {
+        "captured_at_utc": "one",
+        "host": {"hostname": "h", "node": "n", "system": "Linux", "machine": "x86_64"},
+    }
+    second = {
+        "captured_at_utc": "two",
+        "host": {"hostname": "h", "node": "n", "system": "Linux", "machine": "x86_64"},
+    }
+    assert stable_profile_id(first) == stable_profile_id(second)

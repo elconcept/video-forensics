@@ -1,0 +1,63 @@
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+
+import pytest
+
+from video_forensics.native.hevc_reference_enroll import enroll
+
+
+def comparison(path: Path, *, rps: bool = True, legacy: bool = True) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "migration_acceptance": {
+                    "ffmpeg_control_passed": True,
+                    "legacy_comparison_requested": legacy,
+                },
+                "semantic": {
+                    "comparable_record_count": 7,
+                    "field_mismatch_count": 0,
+                    "rps_comparison_complete": rps,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_enrolls_only_verified_real_result(tmp_path: Path) -> None:
+    source = tmp_path / "reference.h265"
+    source.write_bytes(b"reference")
+    result = tmp_path / "comparison.json"
+    comparison(result)
+    config = tmp_path / "references.json"
+    case = enroll(
+        config,
+        case_id="main",
+        source=source,
+        comparison=result,
+        require_complete_rps=True,
+        minimum_comparable_records=4,
+    )
+    assert case["source_sha256"] == hashlib.sha256(b"reference").hexdigest()
+    assert case["enrollment_evidence"]["actual_comparable_records"] == 7
+    assert "REPLACE" not in config.read_text()
+
+
+def test_rejects_result_without_legacy_comparison(tmp_path: Path) -> None:
+    source = tmp_path / "reference.h265"
+    source.write_bytes(b"reference")
+    result = tmp_path / "comparison.json"
+    comparison(result, legacy=False)
+    with pytest.raises(ValueError, match="without legacy"):
+        enroll(
+            tmp_path / "references.json",
+            case_id="main",
+            source=source,
+            comparison=result,
+            require_complete_rps=True,
+            minimum_comparable_records=1,
+        )

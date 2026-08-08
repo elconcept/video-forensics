@@ -1,0 +1,145 @@
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import shutil
+import sys
+import tempfile
+import zipfile
+from pathlib import Path
+from typing import Any
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(8 * 1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def read_checksum(path: Path) -> str:
+    content = path.read_text(encoding="ascii").strip().split()
+    if not content:
+        raise ValueError(f"empty checksum file: {path}")
+    checksum = content[0].lower()
+    if len(checksum) != 64 or any(character not in "0123456789abcdef" for character in checksum):
+        raise ValueError(f"invalid SHA-256 checksum: {path}")
+    return checksum
+
+
+def safe_members(archive: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
+    members: list[zipfile.ZipInfo] = []
+    for member in archive.infolist():
+        path = Path(member.filename)
+        if path.is_absolute() or ".." in path.parts:
+            raise ValueError(f"unsafe ZIP member path: {member.filename}")
+        members.append(member)
+    return members
+
+
+def verify_internal_manifest(root: Path) -> dict[str, Any]:
+    manifest_path = root / "bundle_manifest.json"
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"bundle manifest not found: {manifest_path}")
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise TypeError(f"bundle manifest must be a JSON object: {manifest_path}")
+    entries = payload.get("files")
+    if not isinstance(entries, list):
+        raise TypeError(f"bundle files must be a JSON list: {manifest_path}")
+
+    declared: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise TypeError("bundle file entry must be a JSON object")
+        relative = str(entry["path"])
+        declared.add(relative)
+        target = root / relative
+        if not target.is_file():
+            raise FileNotFoundError(f"declared bundle file not found: {relative}")
+        expected_size = int(entry["size_bytes"])
+        if target.stat().st_size != expected_size:
+            raise ValueError(f"bundle file size mismatch: {relative}")
+        expected_hash = str(entry["sha256"]).lower()
+        if sha256(target) != expected_hash:
+            raise ValueError(f"bundle file SHA-256 mismatch: {relative}")
+
+    actual = {
+        path.relative_to(root).as_posix()
+        for path in root.rglob("*")
+        if path.is_file() and path.name != "bundle_manifest.json"
+    }
+    if actual != declared:
+        missing = sorted(declared - actual)
+        unexpected = sorted(actual - declared)
+        raise ValueError(
+            f"bundle file inventory mismatch; missing={missing}; unexpected={unexpected}"
+        )
+    return payload
+
+
+def import_bundle(bundle: Path, destination: Path, source_id: str) -> dict[str, object]:
+    bundle = bundle.resolve(strict=True)
+    checksum_path = bundle.with_suffix(bundle.suffix + ".sha256")
+    if not checksum_path.is_file():
+        raise FileNotFoundError(f"external checksum file not found: {checksum_path}")
+    expected_bundle_hash = read_checksum(checksum_path)
+    actual_bundle_hash = sha256(bundle)
+    if actual_bundle_hash != expected_bundle_hash:
+        raise ValueError(f"bundle SHA-256 mismatch: {bundle}")
+
+    destination = destination.resolve()
+    imported_root = destination / source_id
+    if imported_root.exists():
+        raise FileExistsError(f"import destination already exists: {imported_root}")
+
+    with tempfile.TemporaryDirectory(prefix="decoder-bundle-") as temporary:
+        extracted = Path(temporary)
+        with zipfile.ZipFile(bundle) as archive:
+            members = safe_members(archive)
+            archive.extractall(extracted, members=members)
+        manifest = verify_internal_manifest(extracted)
+        destination.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(extracted, imported_root)
+
+    receipt = {
+        "schema_version": 1,
+        "source_id": source_id,
+        "bundle": str(bundle),
+        "bundle_sha256": actual_bundle_hash,
+        "file_count": int(manifest.get("file_count", 0)),
+        "imported_root": str(imported_root),
+    }
+    (imported_root / "import_receipt.json").write_text(
+        json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return receipt
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="import-decoder-bundles")
+    parser.add_argument("bundle", type=Path)
+    parser.add_argument("--destination", required=True, type=Path)
+    parser.add_argument("--source-id", required=True)
+    args = parser.parse_args()
+    try:
+        result = import_bundle(args.bundle, args.destination, args.source_id)
+    except (
+        FileNotFoundError,
+        FileExistsError,
+        KeyError,
+        TypeError,
+        ValueError,
+        zipfile.BadZipFile,
+    ) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

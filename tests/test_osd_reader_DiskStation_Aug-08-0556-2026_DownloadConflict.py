@@ -1,0 +1,24 @@
+from __future__ import annotations
+
+from video_forensics.native.osd_reader import analyze_readings, parse_timestamp
+
+
+def test_parse_timestamp() -> None:
+    parsed = parse_timestamp("27-08-2025 00:06:48 (W)")
+    assert parsed is not None
+    assert parsed.isoformat() == "2025-08-27T00:06:48+00:00"
+    assert parse_timestamp("not a timestamp") is None
+
+
+def test_detects_backward_jump_and_missing_range() -> None:
+    rows = [
+        {"frame_number": 1, "parsed_timestamp": "2025-08-27T00:06:48+00:00"},
+        {"frame_number": 2, "parsed_timestamp": None},
+        {"frame_number": 3, "parsed_timestamp": "2025-08-27T00:06:47+00:00"},
+    ]
+    findings = analyze_readings(rows)
+    assert [finding["id"] for finding in findings] == [
+        "OSD_TIMESTAMP_ABSENT_RANGE",
+        "OSD_TIMESTAMP_NON_MONOTONIC",
+    ]
+    assert findings[1]["delta_seconds"] == -1.0

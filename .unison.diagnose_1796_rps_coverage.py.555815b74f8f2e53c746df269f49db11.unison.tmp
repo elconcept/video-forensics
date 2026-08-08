@@ -1,0 +1,51 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+ROOT = Path("work/results/1796")
+runs = sorted(path for path in ROOT.iterdir() if path.is_dir() and path.name[:1].isdigit())
+if not runs:
+    raise SystemExit(f"Brak przebiegów w {ROOT}")
+run = runs[-1]
+comparison_path = run / "hevc_parser_migration/reference_comparison/reference_comparison.json"
+legacy_path = run / "hevc_parser_migration/legacy_comparison.json"
+primary_path = run / "hevc_parser_migration/reference_comparison/authority/h265nal_normalized.json"
+if not primary_path.exists():
+    primary_path = run / "hevc_parser_migration/parser_authority/h265nal_normalized.json"
+
+comparison = json.loads(comparison_path.read_text(encoding="utf-8"))
+legacy = json.loads(legacy_path.read_text(encoding="utf-8"))
+primary = json.loads(primary_path.read_text(encoding="utf-8"))
+semantic = comparison.get("semantic", {})
+
+report = {
+    "run": str(run),
+    "comparison": str(comparison_path),
+    "legacy": str(legacy_path),
+    "primary": str(primary_path),
+    "migration_acceptance": comparison.get("migration_acceptance"),
+    "rps_comparison_complete": semantic.get("rps_comparison_complete"),
+    "rps_applicability": semantic.get("rps_applicability"),
+    "canonical_field_coverage": semantic.get("canonical_field_coverage"),
+    "field_mismatch_count": semantic.get("field_mismatch_count"),
+    "comparable_record_count": semantic.get("comparable_record_count"),
+    "legacy_semantic_agreement": semantic.get("legacy_semantic_agreement"),
+    "legacy_counts": {
+        "nal_count": legacy.get("nal_count"),
+        "sps": len(legacy.get("sps", [])),
+        "pps": len(legacy.get("pps", [])),
+        "slices": len(legacy.get("slices", [])),
+        "records": len(legacy.get("records", [])),
+        "parse_error_count": legacy.get("parse_error_count"),
+    },
+    "primary_counts": {
+        "nal_count": primary.get("nal_count"),
+        "nal_units": len(primary.get("nal_units", [])),
+    },
+    "legacy_parse_errors": legacy.get("parse_errors", [])[:20],
+    "semantic_records": semantic.get("records", [])[:20],
+}
+output = run / "hevc_parser_migration/rps_coverage_diagnosis.json"
+output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+print(json.dumps(report, ensure_ascii=False, indent=2))

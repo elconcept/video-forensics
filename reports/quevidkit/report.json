@@ -1,0 +1,1074 @@
+{
+  "video_path": "/home/tom/projects/quevidkit/work/evidence/1796.mp4",
+  "started_at_utc": "2026-08-06T22:07:01.829255+00:00",
+  "finished_at_utc": "2026-08-06T22:07:04.071360+00:00",
+  "file_sha256": "8560a2d703c1025ba7c5b4deef5e53f89b9ee0c1026cae67b4145e34d137a903",
+  "file_size_bytes": 2193408,
+  "duration_s": 15.669,
+  "video_duration_s": 15.669,
+  "tamper_probability": 0.8361,
+  "label": "tampered",
+  "confidence": 0.9044,
+  "checks": [
+    {
+      "name": "metadata_codec_consistency",
+      "category": "metadata",
+      "score": 0.8183,
+      "confidence": 0.85,
+      "summary": "audio/video duration mismatch",
+      "details": {
+        "duration_relative_diff": 0.0,
+        "bitrate_relative_diff": 3.0209846962848097e-07,
+        "observed_bitrate": 1119871.3383113153,
+        "audio_video_duration_diff_s": 2.8049999999999997,
+        "video_codec": "hevc",
+        "pixel_format": "yuv420p",
+        "resolution": "1920x1080",
+        "format": "mov,mp4,m4a,3gp,3g2,mj2",
+        "findings": [
+          [
+            "audio/video duration mismatch",
+            0.8183333333333332
+          ]
+        ]
+      },
+      "segments": []
+    },
+    {
+      "name": "packet_timing_anomalies",
+      "category": "timing",
+      "score": 0.0,
+      "confidence": 0.5657,
+      "summary": "No significant packet timing anomalies.",
+      "details": {
+        "packet_count": 236,
+        "non_monotonic_dts_count": 0,
+        "non_monotonic_rate": 0.0,
+        "pts_spike_count": 0,
+        "pts_spike_rate": 0.0
+      },
+      "segments": []
+    },
+    {
+      "name": "frame_structure_anomalies",
+      "category": "codec",
+      "score": 0.0,
+      "confidence": 0.5192,
+      "summary": "Frame structure looks stable.",
+      "details": {
+        "frame_count": 192,
+        "gop_interval_cv": 0.3275490280498011,
+        "unique_resolutions": [
+          "1920x1080"
+        ],
+        "color_profile_variants": 0
+      },
+      "segments": []
+    },
+    {
+      "name": "frame_quality_shift",
+      "category": "quality",
+      "score": 0.0,
+      "confidence": 0.05,
+      "summary": "Frame quality analysis failed and was skipped.",
+      "details": {
+        "error": "operands could not be broadcast together with shapes (180,40) (180,39) "
+      },
+      "segments": []
+    },
+    {
+      "name": "compression_consistency",
+      "category": "codec",
+      "score": 0.5463,
+      "confidence": 0.5192,
+      "summary": "P-frame size shift in window 0; P-frame size shift in window 1; P-frame size shift in window 2",
+      "details": {
+        "windows": 6,
+        "P_frame_size_cv": 0.7342
+      },
+      "segments": [
+        {
+          "category": "compression_shift",
+          "start_s": 0.0,
+          "end_s": 2.611,
+          "confidence": 0.9,
+          "details": {
+            "frame_type": "P",
+            "window_median": 6347,
+            "global_median": 2710.0
+          }
+        },
+        {
+          "category": "compression_shift",
+          "start_s": 2.611,
+          "end_s": 5.223,
+          "confidence": 0.6042,
+          "details": {
+            "frame_type": "P",
+            "window_median": 1603.0,
+            "global_median": 2710.0
+          }
+        },
+        {
+          "category": "compression_shift",
+          "start_s": 5.223,
+          "end_s": 7.835,
+          "confidence": 0.7047,
+          "details": {
+            "frame_type": "P",
+            "window_median": 1058.5,
+            "global_median": 2710.0
+          }
+        },
+        {
+          "category": "compression_shift",
+          "start_s": 7.835,
+          "end_s": 10.446,
+          "confidence": 0.6439,
+          "details": {
+            "frame_type": "P",
+            "window_median": 1388.0,
+            "global_median": 2710.0
+          }
+        },
+        {
+          "category": "compression_shift",
+          "start_s": 10.446,
+          "end_s": 13.057,
+          "confidence": 0.9,
+          "details": {
+            "frame_type": "P",
+            "window_median": 6391,
+            "global_median": 2710.0
+          }
+        }
+      ]
+    },
+    {
+      "name": "scene_cut_forensics",
+      "category": "timing",
+      "score": 0.0,
+      "confidence": 0.56,
+      "summary": "Scene changes align naturally with GOP structure.",
+      "details": {
+        "scene_count": 1,
+        "keyframe_count": 4,
+        "gop_interval_s": 3.4,
+        "misaligned_count": 0,
+        "misalign_rate": 0.0,
+        "cluster_count": 0
+      },
+      "segments": []
+    },
+    {
+      "name": "audio_spectral_continuity",
+      "category": "audio",
+      "score": 0.8461,
+      "confidence": 0.5572,
+      "summary": "audio energy discontinuity at 0.00s; audio spectral_centroid discontinuity at 0.00s; audio spectral_centroid discontinuity at 3.80s (+5 more)",
+      "details": {
+        "n_windows": 255,
+        "audio_duration_s": 12.865,
+        "spectral_break_count": 8,
+        "silence_gap_count": 0,
+        "mean_energy": 0.000244,
+        "mean_spectral_centroid_hz": 129.0
+      },
+      "segments": [
+        {
+          "category": "audio_spectral_break",
+          "start_s": 0,
+          "end_s": 0.1,
+          "confidence": 1.0,
+          "details": {
+            "feature": "energy",
+            "z_score": 21.45
+          }
+        },
+        {
+          "category": "audio_spectral_break",
+          "start_s": 0,
+          "end_s": 0.1,
+          "confidence": 0.8971,
+          "details": {
+            "feature": "spectral_centroid",
+            "z_score": 7.94
+          }
+        },
+        {
+          "category": "audio_spectral_break",
+          "start_s": 3.7,
+          "end_s": 3.9,
+          "confidence": 0.8398,
+          "details": {
+            "feature": "spectral_centroid",
+            "z_score": 6.8
+          }
+        },
+        {
+          "category": "audio_spectral_break",
+          "start_s": 8.35,
+          "end_s": 8.55,
+          "confidence": 0.769,
+          "details": {
+            "feature": "spectral_centroid",
+            "z_score": 5.38
+          }
+        },
+        {
+          "category": "audio_spectral_break",
+          "start_s": 12.45,
+          "end_s": 12.65,
+          "confidence": 1.0,
+          "details": {
+            "feature": "spectral_centroid",
+            "z_score": 15.48
+          }
+        },
+        {
+          "category": "audio_spectral_break",
+          "start_s": 12.45,
+          "end_s": 12.65,
+          "confidence": 0.9468,
+          "details": {
+            "feature": "zcr",
+            "z_score": 8.94
+          }
+        },
+        {
+          "category": "audio_spectral_break",
+          "start_s": 12.5,
+          "end_s": 12.7,
+          "confidence": 1.0,
+          "details": {
+            "feature": "zcr",
+            "z_score": 17.67
+          }
+        },
+        {
+          "category": "audio_spectral_break",
+          "start_s": 12.55,
+          "end_s": 12.75,
+          "confidence": 0.9317,
+          "details": {
+            "feature": "zcr",
+            "z_score": 8.63
+          }
+        }
+      ]
+    },
+    {
+      "name": "temporal_noise_consistency",
+      "category": "quality",
+      "score": 0.8525,
+      "confidence": 0.456,
+      "summary": "noise_floor shift at 0.5s (z=13.5); noise_floor shift at 1.6s (z=8.8); noise_floor shift at 2.1s (z=26.4)",
+      "details": {
+        "sampled_frames": 24,
+        "mean_noise_level": 32.36,
+        "noise_level_std": 2.16,
+        "shift_events": 16
+      },
+      "segments": [
+        {
+          "category": "noise_shift",
+          "start_s": 0.033,
+          "end_s": 1.033,
+          "confidence": 1.0,
+          "details": {
+            "feature": "noise_floor",
+            "z_score": 13.46
+          }
+        },
+        {
+          "category": "noise_shift",
+          "start_s": 0.033,
+          "end_s": 1.033,
+          "confidence": 1.0,
+          "details": {
+            "feature": "hf_energy",
+            "z_score": 7.78
+          }
+        },
+        {
+          "category": "noise_shift",
+          "start_s": 1.1,
+          "end_s": 2.1,
+          "confidence": 1.0,
+          "details": {
+            "feature": "noise_floor",
+            "z_score": 8.78
+          }
+        },
+        {
+          "category": "noise_shift",
+          "start_s": 1.1,
+          "end_s": 2.1,
+          "confidence": 0.9446,
+          "details": {
+            "feature": "hf_energy",
+            "z_score": 5.92
+          }
+        },
+        {
+          "category": "noise_shift",
+          "start_s": 1.633,
+          "end_s": 2.633,
+          "confidence": 1.0,
+          "details": {
+            "feature": "noise_floor",
+            "z_score": 26.4
+          }
+        },
+        {
+          "category": "noise_shift",
+          "start_s": 9.097,
+          "end_s": 10.097,
+          "confidence": 1.0,
+          "details": {
+            "feature": "noise_floor",
+            "z_score": 40.91
+          }
+        },
+        {
+          "category": "noise_shift",
+          "start_s": 9.097,
+          "end_s": 10.097,
+          "confidence": 1.0,
+          "details": {
+            "feature": "hf_energy",
+            "z_score": 7.5
+          }
+        },
+        {
+          "category": "noise_shift",
+          "start_s": 9.625,
+          "end_s": 10.625,
+          "confidence": 1.0,
+          "details": {
+            "feature": "noise_floor",
+            "z_score": 28.64
+          }
+        },
+        {
+          "category": "noise_shift",
+          "start_s": 9.625,
+          "end_s": 10.625,
+          "confidence": 0.9929,
+          "details": {
+            "feature": "hf_energy",
+            "z_score": 6.64
+          }
+        },
+        {
+          "category": "noise_shift",
+          "start_s": 10.153,
+          "end_s": 11.153,
+          "confidence": 1.0,
+          "details": {
+            "feature": "noise_floor",
+            "z_score": 20.28
+          }
+        },
+        {
+          "category": "noise_shift",
+          "start_s": 10.153,
+          "end_s": 11.153,
+          "confidence": 1.0,
+          "details": {
+            "feature": "hf_energy",
+            "z_score": 15.69
+          }
+        },
+        {
+          "category": "noise_shift",
+          "start_s": 10.681,
+          "end_s": 11.681,
+          "confidence": 1.0,
+          "details": {
+            "feature": "noise_floor",
+            "z_score": 27.54
+          }
+        },
+        {
+          "category": "noise_shift",
+          "start_s": 10.681,
+          "end_s": 11.681,
+          "confidence": 1.0,
+          "details": {
+            "feature": "hf_energy",
+            "z_score": 7.94
+          }
+        },
+        {
+          "category": "noise_shift",
+          "start_s": 11.209,
+          "end_s": 12.209,
+          "confidence": 1.0,
+          "details": {
+            "feature": "noise_floor",
+            "z_score": 13.9
+          }
+        },
+        {
+          "category": "noise_shift",
+          "start_s": 11.737,
+          "end_s": 12.737,
+          "confidence": 1.0,
+          "details": {
+            "feature": "noise_floor",
+            "z_score": 7.21
+          }
+        },
+        {
+          "category": "noise_shift",
+          "start_s": 11.737,
+          "end_s": 12.737,
+          "confidence": 0.8581,
+          "details": {
+            "feature": "hf_energy",
+            "z_score": 4.62
+          }
+        }
+      ]
+    },
+    {
+      "name": "double_compression_detection",
+      "category": "codec",
+      "score": 0.5743,
+      "confidence": 0.738,
+      "summary": "Periodic pattern at lag 138 suggests prior encoding with different GOP (current GOP=51).",
+      "details": {
+        "current_gop": 51,
+        "suspicious_lags": [
+          [
+            5,
+            0.2127
+          ],
+          [
+            10,
+            0.1821
+          ],
+          [
+            138,
+            0.3829
+          ]
+        ],
+        "i_frame_count": 4,
+        "p_frame_count": 188
+      },
+      "segments": []
+    },
+    {
+      "name": "ela_frame_analysis",
+      "category": "quality",
+      "score": 0.813,
+      "confidence": 0.41,
+      "summary": "ELA ela_mean shift at 0.7s (z=6.3); ELA ela_mean shift at 1.3s (z=4.1); ELA ela_mean shift at 12.6s (z=12.1)",
+      "details": {
+        "sampled_frames": 20,
+        "mean_ela_residual": 2.729,
+        "ela_residual_cv": 0.1128,
+        "shift_events": 8
+      },
+      "segments": [
+        {
+          "category": "ela_shift",
+          "start_s": 0.166,
+          "end_s": 1.166,
+          "confidence": 0.9168,
+          "details": {
+            "feature": "ela_mean",
+            "z_score": 6.25
+          }
+        },
+        {
+          "category": "ela_shift",
+          "start_s": 0.166,
+          "end_s": 1.166,
+          "confidence": 0.83,
+          "details": {
+            "feature": "ela_std",
+            "z_score": 4.95
+          }
+        },
+        {
+          "category": "ela_shift",
+          "start_s": 0.833,
+          "end_s": 1.833,
+          "confidence": 0.771,
+          "details": {
+            "feature": "ela_mean",
+            "z_score": 4.06
+          }
+        },
+        {
+          "category": "ela_shift",
+          "start_s": 0.833,
+          "end_s": 1.833,
+          "confidence": 1.0,
+          "details": {
+            "feature": "ela_std",
+            "z_score": 9.77
+          }
+        },
+        {
+          "category": "ela_shift",
+          "start_s": 9.493,
+          "end_s": 10.493,
+          "confidence": 1.0,
+          "details": {
+            "feature": "ela_std",
+            "z_score": 10.96
+          }
+        },
+        {
+          "category": "ela_shift",
+          "start_s": 10.153,
+          "end_s": 11.153,
+          "confidence": 1.0,
+          "details": {
+            "feature": "ela_std",
+            "z_score": 13.4
+          }
+        },
+        {
+          "category": "ela_shift",
+          "start_s": 12.133,
+          "end_s": 13.133,
+          "confidence": 1.0,
+          "details": {
+            "feature": "ela_mean",
+            "z_score": 12.09
+          }
+        },
+        {
+          "category": "ela_shift",
+          "start_s": 12.133,
+          "end_s": 13.133,
+          "confidence": 1.0,
+          "details": {
+            "feature": "ela_std",
+            "z_score": 22.11
+          }
+        }
+      ]
+    },
+    {
+      "name": "bitstream_structure",
+      "category": "codec",
+      "score": 0.05,
+      "confidence": 0.532,
+      "summary": "Bitstream structure is consistent throughout.",
+      "details": {
+        "codec": "hevc",
+        "profile": "Main",
+        "level": 123,
+        "frame_count": 192,
+        "extradata_size": 101,
+        "declared_b_frames": 0,
+        "actual_b_frame_count": 0
+      },
+      "segments": []
+    },
+    {
+      "name": "qp_consistency",
+      "category": "codec",
+      "score": 1.0,
+      "confidence": 0.55,
+      "summary": "GOP type pattern inconsistency (2/3 non-dominant)",
+      "details": {
+        "total_gops": 3,
+        "unique_patterns": 3,
+        "dominant_pattern_ratio": 0.333,
+        "anomaly_rate": 0.6667
+      },
+      "segments": [
+        {
+          "category": "gop_pattern_anomaly",
+          "start_s": 3.4,
+          "end_s": 7.4,
+          "confidence": 0.85,
+          "details": {
+            "expected_pattern": "IPPPPPPPPPPPPPPPPPPP",
+            "actual_pattern": "IPPPPPPPPPPPPPPPPPPP"
+          }
+        },
+        {
+          "category": "gop_pattern_anomaly",
+          "start_s": 7.4,
+          "end_s": 9.399,
+          "confidence": 0.85,
+          "details": {
+            "expected_pattern": "IPPPPPPPPPPPPPPPPPPP",
+            "actual_pattern": "IPPPPPPPPPPPPPPPPPPP"
+          }
+        }
+      ]
+    },
+    {
+      "name": "thumbnail_mismatch",
+      "category": "metadata",
+      "score": 0.0,
+      "confidence": 0.3,
+      "summary": "No embedded thumbnail found (normal for most videos).",
+      "details": {
+        "video_stream_count": 1
+      },
+      "segments": []
+    },
+    {
+      "name": "av_sync_drift",
+      "category": "timing",
+      "score": 0.0,
+      "confidence": 0.15,
+      "summary": "Not enough separate A/V timestamps for drift analysis.",
+      "details": {
+        "video_packets": 236,
+        "audio_packets": 0
+      },
+      "segments": []
+    },
+    {
+      "name": "bitrate_distribution",
+      "category": "codec",
+      "score": 0.05,
+      "confidence": 0.4893,
+      "summary": "Packet size distribution is unimodal \u2014 consistent single encoding.",
+      "details": {
+        "packet_count": 236,
+        "bimodality_coefficient": 0.451,
+        "log_size_skewness": 0.4836,
+        "log_size_excess_kurtosis": -0.3029,
+        "mean_packet_size": 9244.0,
+        "std_packet_size": 17262.0
+      },
+      "segments": []
+    }
+  ],
+  "suspicious_segments": [
+    {
+      "category": "audio_spectral_break",
+      "start_s": 0,
+      "end_s": 0.1,
+      "confidence": 1.0,
+      "details": {
+        "feature": "energy",
+        "z_score": 21.45
+      }
+    },
+    {
+      "category": "audio_spectral_break",
+      "start_s": 0,
+      "end_s": 0.1,
+      "confidence": 0.8971,
+      "details": {
+        "feature": "spectral_centroid",
+        "z_score": 7.94
+      }
+    },
+    {
+      "category": "compression_shift",
+      "start_s": 0.0,
+      "end_s": 2.611,
+      "confidence": 0.9,
+      "details": {
+        "frame_type": "P",
+        "window_median": 6347,
+        "global_median": 2710.0
+      }
+    },
+    {
+      "category": "noise_shift",
+      "start_s": 0.033,
+      "end_s": 1.033,
+      "confidence": 1.0,
+      "details": {
+        "feature": "noise_floor",
+        "z_score": 13.46
+      }
+    },
+    {
+      "category": "noise_shift",
+      "start_s": 0.033,
+      "end_s": 1.033,
+      "confidence": 1.0,
+      "details": {
+        "feature": "hf_energy",
+        "z_score": 7.78
+      }
+    },
+    {
+      "category": "ela_shift",
+      "start_s": 0.166,
+      "end_s": 1.166,
+      "confidence": 0.9168,
+      "details": {
+        "feature": "ela_mean",
+        "z_score": 6.25
+      }
+    },
+    {
+      "category": "ela_shift",
+      "start_s": 0.166,
+      "end_s": 1.166,
+      "confidence": 0.83,
+      "details": {
+        "feature": "ela_std",
+        "z_score": 4.95
+      }
+    },
+    {
+      "category": "ela_shift",
+      "start_s": 0.833,
+      "end_s": 1.833,
+      "confidence": 0.771,
+      "details": {
+        "feature": "ela_mean",
+        "z_score": 4.06
+      }
+    },
+    {
+      "category": "ela_shift",
+      "start_s": 0.833,
+      "end_s": 1.833,
+      "confidence": 1.0,
+      "details": {
+        "feature": "ela_std",
+        "z_score": 9.77
+      }
+    },
+    {
+      "category": "noise_shift",
+      "start_s": 1.1,
+      "end_s": 2.1,
+      "confidence": 1.0,
+      "details": {
+        "feature": "noise_floor",
+        "z_score": 8.78
+      }
+    },
+    {
+      "category": "noise_shift",
+      "start_s": 1.1,
+      "end_s": 2.1,
+      "confidence": 0.9446,
+      "details": {
+        "feature": "hf_energy",
+        "z_score": 5.92
+      }
+    },
+    {
+      "category": "noise_shift",
+      "start_s": 1.633,
+      "end_s": 2.633,
+      "confidence": 1.0,
+      "details": {
+        "feature": "noise_floor",
+        "z_score": 26.4
+      }
+    },
+    {
+      "category": "compression_shift",
+      "start_s": 2.611,
+      "end_s": 5.223,
+      "confidence": 0.6042,
+      "details": {
+        "frame_type": "P",
+        "window_median": 1603.0,
+        "global_median": 2710.0
+      }
+    },
+    {
+      "category": "gop_pattern_anomaly",
+      "start_s": 3.4,
+      "end_s": 7.4,
+      "confidence": 0.85,
+      "details": {
+        "expected_pattern": "IPPPPPPPPPPPPPPPPPPP",
+        "actual_pattern": "IPPPPPPPPPPPPPPPPPPP"
+      }
+    },
+    {
+      "category": "audio_spectral_break",
+      "start_s": 3.7,
+      "end_s": 3.9,
+      "confidence": 0.8398,
+      "details": {
+        "feature": "spectral_centroid",
+        "z_score": 6.8
+      }
+    },
+    {
+      "category": "compression_shift",
+      "start_s": 5.223,
+      "end_s": 7.835,
+      "confidence": 0.7047,
+      "details": {
+        "frame_type": "P",
+        "window_median": 1058.5,
+        "global_median": 2710.0
+      }
+    },
+    {
+      "category": "gop_pattern_anomaly",
+      "start_s": 7.4,
+      "end_s": 9.399,
+      "confidence": 0.85,
+      "details": {
+        "expected_pattern": "IPPPPPPPPPPPPPPPPPPP",
+        "actual_pattern": "IPPPPPPPPPPPPPPPPPPP"
+      }
+    },
+    {
+      "category": "compression_shift",
+      "start_s": 7.835,
+      "end_s": 10.446,
+      "confidence": 0.6439,
+      "details": {
+        "frame_type": "P",
+        "window_median": 1388.0,
+        "global_median": 2710.0
+      }
+    },
+    {
+      "category": "audio_spectral_break",
+      "start_s": 8.35,
+      "end_s": 8.55,
+      "confidence": 0.769,
+      "details": {
+        "feature": "spectral_centroid",
+        "z_score": 5.38
+      }
+    },
+    {
+      "category": "noise_shift",
+      "start_s": 9.097,
+      "end_s": 10.097,
+      "confidence": 1.0,
+      "details": {
+        "feature": "noise_floor",
+        "z_score": 40.91
+      }
+    },
+    {
+      "category": "noise_shift",
+      "start_s": 9.097,
+      "end_s": 10.097,
+      "confidence": 1.0,
+      "details": {
+        "feature": "hf_energy",
+        "z_score": 7.5
+      }
+    },
+    {
+      "category": "ela_shift",
+      "start_s": 9.493,
+      "end_s": 10.493,
+      "confidence": 1.0,
+      "details": {
+        "feature": "ela_std",
+        "z_score": 10.96
+      }
+    },
+    {
+      "category": "noise_shift",
+      "start_s": 9.625,
+      "end_s": 10.625,
+      "confidence": 1.0,
+      "details": {
+        "feature": "noise_floor",
+        "z_score": 28.64
+      }
+    },
+    {
+      "category": "noise_shift",
+      "start_s": 9.625,
+      "end_s": 10.625,
+      "confidence": 0.9929,
+      "details": {
+        "feature": "hf_energy",
+        "z_score": 6.64
+      }
+    },
+    {
+      "category": "noise_shift",
+      "start_s": 10.153,
+      "end_s": 11.153,
+      "confidence": 1.0,
+      "details": {
+        "feature": "noise_floor",
+        "z_score": 20.28
+      }
+    },
+    {
+      "category": "noise_shift",
+      "start_s": 10.153,
+      "end_s": 11.153,
+      "confidence": 1.0,
+      "details": {
+        "feature": "hf_energy",
+        "z_score": 15.69
+      }
+    },
+    {
+      "category": "ela_shift",
+      "start_s": 10.153,
+      "end_s": 11.153,
+      "confidence": 1.0,
+      "details": {
+        "feature": "ela_std",
+        "z_score": 13.4
+      }
+    },
+    {
+      "category": "compression_shift",
+      "start_s": 10.446,
+      "end_s": 13.057,
+      "confidence": 0.9,
+      "details": {
+        "frame_type": "P",
+        "window_median": 6391,
+        "global_median": 2710.0
+      }
+    },
+    {
+      "category": "noise_shift",
+      "start_s": 10.681,
+      "end_s": 11.681,
+      "confidence": 1.0,
+      "details": {
+        "feature": "noise_floor",
+        "z_score": 27.54
+      }
+    },
+    {
+      "category": "noise_shift",
+      "start_s": 10.681,
+      "end_s": 11.681,
+      "confidence": 1.0,
+      "details": {
+        "feature": "hf_energy",
+        "z_score": 7.94
+      }
+    },
+    {
+      "category": "noise_shift",
+      "start_s": 11.209,
+      "end_s": 12.209,
+      "confidence": 1.0,
+      "details": {
+        "feature": "noise_floor",
+        "z_score": 13.9
+      }
+    },
+    {
+      "category": "noise_shift",
+      "start_s": 11.737,
+      "end_s": 12.737,
+      "confidence": 1.0,
+      "details": {
+        "feature": "noise_floor",
+        "z_score": 7.21
+      }
+    },
+    {
+      "category": "noise_shift",
+      "start_s": 11.737,
+      "end_s": 12.737,
+      "confidence": 0.8581,
+      "details": {
+        "feature": "hf_energy",
+        "z_score": 4.62
+      }
+    },
+    {
+      "category": "ela_shift",
+      "start_s": 12.133,
+      "end_s": 13.133,
+      "confidence": 1.0,
+      "details": {
+        "feature": "ela_mean",
+        "z_score": 12.09
+      }
+    },
+    {
+      "category": "ela_shift",
+      "start_s": 12.133,
+      "end_s": 13.133,
+      "confidence": 1.0,
+      "details": {
+        "feature": "ela_std",
+        "z_score": 22.11
+      }
+    },
+    {
+      "category": "audio_spectral_break",
+      "start_s": 12.45,
+      "end_s": 12.65,
+      "confidence": 1.0,
+      "details": {
+        "feature": "spectral_centroid",
+        "z_score": 15.48
+      }
+    },
+    {
+      "category": "audio_spectral_break",
+      "start_s": 12.45,
+      "end_s": 12.65,
+      "confidence": 0.9468,
+      "details": {
+        "feature": "zcr",
+        "z_score": 8.94
+      }
+    },
+    {
+      "category": "audio_spectral_break",
+      "start_s": 12.5,
+      "end_s": 12.7,
+      "confidence": 1.0,
+      "details": {
+        "feature": "zcr",
+        "z_score": 17.67
+      }
+    },
+    {
+      "category": "audio_spectral_break",
+      "start_s": 12.55,
+      "end_s": 12.75,
+      "confidence": 0.9317,
+      "details": {
+        "feature": "zcr",
+        "z_score": 8.63
+      }
+    }
+  ],
+  "explanation": [
+    "Verdict: TAMPERED \u2014 7 of 15 checks found strong anomalies (tamper probability 84%, confidence 90%). Critically, 4 independent forensic categories (audio, codec, metadata, quality) detected anomalies simultaneously, which significantly reduces the likelihood of false positive.",
+    "[metadata_codec_consistency] score=82%, confidence=85%\n  Finding: audio/video duration mismatch\n  Method: Compares container-level metadata (durations, bitrates, format tags) against the actual stream data for inconsistencies.\n  If tampered: Metadata mismatches can indicate that content was re-muxed, trimmed, or spliced without properly updating container headers.\n  Benign alternative: Legitimate re-encoding, format conversion, or streaming software (OBS, Zoom, etc.) can cause minor metadata drift. Transcoding tools commonly leave software markers.\n  Note: No corroborating signal from other metadata checks.",
+    "[qp_consistency] score=100%, confidence=55%\n  Finding: GOP type pattern inconsistency (2/3 non-dominant)\n  Method: Analyzes the pattern of frame types (I/P/B sequences) within each GOP for consistency. Different encoders produce different GOP patterns.\n  If tampered: When segments encoded by different software or settings are joined, the GOP type patterns in the spliced section will differ from the rest of the video.\n  Benign alternative: Scene-based encoding decisions, rate control adjustments, and some streaming protocols intentionally vary GOP patterns for optimal quality.\n  Corroborated by: compression_consistency, double_compression_detection (same forensic category)",
+    "[audio_spectral_continuity] score=85%, confidence=56%\n  Finding: audio energy discontinuity at 0.00s; audio spectral_centroid discontinuity at 0.00s; audio spectral_centroid discontinuity at 3.80s (+5 more)\n  Method: Computes audio spectral features (energy, spectral centroid, zero-crossing rate) over sliding windows and detects abrupt discontinuities.\n  If tampered: Audio splices produce sharp spectral breaks because the two joined segments were recorded with different microphones, environments, or encoding settings.\n  Benign alternative: Sudden sounds (door slams, speech starting, music transitions), background noise changes, and microphone handling all create legitimate spectral discontinuities.\n  Note: No corroborating signal from other audio checks.",
+    "[double_compression_detection] score=57%, confidence=74%\n  Finding: Periodic pattern at lag 138 suggests prior encoding with different GOP (current GOP=51).\n  Method: Analyzes I-frame size periodicity and P-frame autocorrelation to detect evidence of re-encoding over a previously compressed video.\n  If tampered: When a video is re-encoded, the original GOP structure leaves a periodic fingerprint in frame sizes. A detected period that doesn't match the current GOP strongly indicates re-processing.\n  Benign alternative: Social media uploads, messaging app compression, and cloud storage processing routinely re-encode video. A single re-encoding without content changes is common and not evidence of tampering.\n  Corroborated by: compression_consistency, qp_consistency (same forensic category)",
+    "[temporal_noise_consistency] score=85%, confidence=46%\n  Finding: noise_floor shift at 0.5s (z=13.5); noise_floor shift at 1.6s (z=8.8); noise_floor shift at 2.1s (z=26.4)\n  Method: Measures per-frame noise levels (Laplacian noise floor, high-frequency energy) across the timeline to detect source changes.\n  If tampered: Content from a different camera or different encoding quality produces a measurably different noise profile, creating a visible shift at splice boundaries.\n  Benign alternative: Lighting changes (indoor/outdoor transitions, turning lights on), camera gain adjustments (auto-ISO), and scene complexity changes naturally alter noise characteristics.\n  Corroborated by: ela_frame_analysis (same forensic category)",
+    "[ela_frame_analysis] score=81%, confidence=41%\n  Finding: ELA ela_mean shift at 0.7s (z=6.3); ELA ela_mean shift at 1.3s (z=4.1); ELA ela_mean shift at 12.6s (z=12.1)\n  Method: Re-compresses sampled frames at a fixed JPEG quality and measures the residual difference. Regions with different compression histories show different error levels.\n  If tampered: Tampered regions that were re-compressed at different quality levels produce ELA residuals that stand out from the surrounding authentic content.\n  Benign alternative: Complex textures, sharp edges, and areas with fine detail naturally produce higher ELA residuals. Scene changes cause legitimate ELA variation across time.\n  Corroborated by: temporal_noise_consistency (same forensic category)",
+    "[compression_consistency] score=55%, confidence=52%\n  Finding: P-frame size shift in window 0; P-frame size shift in window 1; P-frame size shift in window 2\n  Method: Splits the video timeline into segments and compares packet-size distributions for each frame type (I/P/B) across those segments.\n  If tampered: If part of the video was re-encoded at different quality settings, that segment will show a measurably different packet-size distribution.\n  Benign alternative: Complex scenes naturally require larger packets than simple ones. Variable bitrate (VBR) encoding, which is the default for most encoders, produces legitimate variation.\n  Corroborated by: double_compression_detection, qp_consistency (same forensic category)",
+    "Unavailable checks: frame_quality_shift: Frame quality analysis failed and was skipped."
+  ],
+  "options": {
+    "preset": "deep",
+    "sample_fps": 4.0,
+    "max_frames": 5000,
+    "sensitivity": 0.7,
+    "enable_metadata_scan": true,
+    "enable_packet_scan": true,
+    "enable_frame_scan": true,
+    "enable_quality_scan": true,
+    "enable_advanced_forensics": true,
+    "include_debug_payload": false
+  },
+  "debug": {
+    "probe_errors": [
+      "opencv_frame_quality_checks: operands could not be broadcast together with shapes (180,40) (180,39) "
+    ]
+  }
+}

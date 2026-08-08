@@ -1,0 +1,19 @@
+from __future__ import annotations
+
+import sys
+
+import pytest
+
+from video_forensics.process import run_command
+
+
+def test_run_command_requires_absolute_executable() -> None:
+    with pytest.raises(ValueError, match="absolute path"):
+        run_command(["echo", "test"])
+
+
+def test_run_command_records_output() -> None:
+    result = run_command([sys.executable, "-c", "print('ok')"])
+    assert result.returncode == 0
+    assert result.stdout == "ok\n"
+    assert result.argv[0] == sys.executable

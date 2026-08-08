@@ -1,0 +1,45 @@
+from __future__ import annotations
+
+import importlib.util
+from pathlib import Path
+
+import pytest
+
+MODULE_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "scripts"
+    / "bootstrap_h265nal.py"
+)
+SPEC = importlib.util.spec_from_file_location("bootstrap_h265nal", MODULE_PATH)
+if SPEC is None or SPEC.loader is None:
+    raise ImportError(f"Cannot load {MODULE_PATH}")
+bootstrap_h265nal = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(bootstrap_h265nal)
+require_build_tools = bootstrap_h265nal.require_build_tools
+
+
+def test_requires_git_cmake_and_cpp_compiler(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    available = {
+        "git": "/usr/bin/git",
+        "cmake": "/usr/bin/cmake",
+        "c++": None,
+        "clang++": None,
+        "g++": None,
+        "cl": None,
+    }
+    monkeypatch.setattr(
+        bootstrap_h265nal.shutil,
+        "which",
+        lambda name: available.get(name),
+    )
+    with pytest.raises(FileNotFoundError, match="compiler"):
+        require_build_tools()
+
+
+def test_pin_is_not_a_branch_name() -> None:
+    pinned_ref = bootstrap_h265nal.PINNED_REF
+
+    assert pinned_ref not in {"master", "main", "HEAD"}
+    assert len(pinned_ref) >= 7

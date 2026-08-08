@@ -1,0 +1,18 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from video_forensics.native.hevc_reference_run import newest_comparison
+
+
+def test_selects_latest_timestamp_comparison(tmp_path: Path) -> None:
+    for stamp in ("20260806T120000Z", "20260806T130000Z"):
+        path = (
+            tmp_path
+            / stamp
+            / "hevc_parser_migration/reference_comparison/reference_comparison.json"
+        )
+        path.parent.mkdir(parents=True)
+        path.write_text("{}", encoding="utf-8")
+    selected = newest_comparison(tmp_path)
+    assert "20260806T130000Z" in str(selected)

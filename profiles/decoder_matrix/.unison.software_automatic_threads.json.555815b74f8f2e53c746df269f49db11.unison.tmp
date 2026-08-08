@@ -1,0 +1,5 @@
+{
+  "profile_id": "software_automatic_threads",
+  "description": "Native FFmpeg software decode with automatic threading",
+  "ffmpeg_args": ["-threads", "0"]
+}

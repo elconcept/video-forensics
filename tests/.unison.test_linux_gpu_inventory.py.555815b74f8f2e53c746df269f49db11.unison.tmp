@@ -1,0 +1,19 @@
+from __future__ import annotations
+
+from video_forensics.native.linux_gpu_inventory import display_devices, inventory
+
+LSPCI = """01:00.0 VGA compatible controller [0300]: NVIDIA Corporation GP107GL [Quadro P600] [10de:1cb2] (rev a1)
+\tKernel driver in use: nvidia
+04:00.0 Network controller [0280]: Intel Corporation Wi-Fi 6E AX210 [8086:2725]
+07:00.1 Audio device [0403]: Advanced Micro Devices, Inc. [AMD/ATI] HDMI Audio [1002:1637]
+"""
+
+
+def test_only_display_class_devices_define_gpu_vendors() -> None:
+    devices = display_devices(LSPCI)
+    assert len(devices) == 1
+    assert devices[0]["vendor"] == "nvidia"
+    result = inventory(LSPCI, ["cuda", "qsv", "vaapi"], ["/dev/dri/renderD128"], ffmpeg="/bin/false")
+    assert result["vendors"] == {"intel": False, "nvidia": True, "amd": False}
+    assert result["usable"]["qsv"] is False
+    assert "profiles/decoder_matrix/linux_qsv.json" not in result["selected_profiles"]

@@ -1,0 +1,47 @@
+from __future__ import annotations
+
+from video_forensics.tools.hevc_pps import parse_deblocking, parse_range_extension, parse_tiles
+from video_forensics.tools.hevc_sps import BitReader
+
+
+def bits_to_bytes(bits: str) -> bytes:
+    padded = bits + "0" * ((8 - len(bits) % 8) % 8)
+    return int(padded, 2).to_bytes(len(padded) // 8, "big")
+
+
+def ue(value: int) -> str:
+    payload = f"{value + 1:b}"
+    return "0" * (len(payload) - 1) + payload
+
+
+def se(value: int) -> str:
+    code_num = 2 * value - 1 if value > 0 else -2 * value
+    return ue(code_num)
+
+
+def test_uniform_tiles() -> None:
+    syntax = ue(2) + ue(1) + "1" + "0"
+    result = parse_tiles(BitReader(bits_to_bytes(syntax)))
+    assert result["num_tile_columns"] == 3
+    assert result["num_tile_rows"] == 2
+    assert result["uniform_spacing_flag"] == 1
+    assert result["loop_filter_across_tiles_enabled_flag"] == 0
+
+
+def test_deblocking_offsets_are_derived() -> None:
+    syntax = "1" + "1" + "0" + se(2) + se(-1)
+    result = parse_deblocking(BitReader(bits_to_bytes(syntax)))
+    assert result is not None
+    assert result["override_enabled_flag"] == 1
+    assert result["beta_offset"] == 4
+    assert result["tc_offset"] == -2
+
+
+def test_range_extension_chroma_offsets() -> None:
+    syntax = ue(1) + "1" + "1" + ue(2) + ue(1) + se(2) + se(-2) + se(1) + se(-1) + ue(0) + ue(1)
+    result = parse_range_extension(BitReader(bits_to_bytes(syntax)), 1)
+    assert result["log2_max_transform_skip_block_size"] == 3
+    assert result["cross_component_prediction_enabled_flag"] == 1
+    assert result["cb_qp_offset_list"] == [2, 1]
+    assert result["cr_qp_offset_list"] == [-2, -1]
+    assert result["log2_sao_offset_scale_chroma"] == 1

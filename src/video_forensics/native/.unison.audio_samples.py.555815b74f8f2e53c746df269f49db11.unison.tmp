@@ -1,0 +1,244 @@
+from __future__ import annotations
+
+import argparse
+import array
+import hashlib
+import json
+import shutil
+import subprocess
+import sys
+from datetime import UTC, datetime
+from pathlib import Path
+from time import monotonic
+from typing import Any
+
+
+def find_binary(name: str, explicit: str | None) -> Path | None:
+    candidate = explicit or shutil.which(name)
+    return None if candidate is None else Path(candidate).expanduser().resolve(strict=True)
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(8 * 1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def run(argv: list[str], timeout: int) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(
+        argv,
+        capture_output=True,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def probe(ffprobe: Path, video: Path, timeout: int) -> dict[str, Any]:
+    argv = [
+        str(ffprobe),
+        "-v",
+        "error",
+        "-show_entries",
+        "stream=index,codec_type,sample_rate,channels,start_time,duration:format=duration",
+        "-of",
+        "json",
+        str(video),
+    ]
+    completed = run(argv, timeout)
+    if completed.returncode != 0:
+        raise RuntimeError(
+            completed.stderr.decode("utf-8", errors="replace").strip()
+            or "ffprobe failed without diagnostic output"
+        )
+    payload = json.loads(completed.stdout.decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise TypeError("ffprobe output must be a JSON object")
+    payload["command"] = argv
+    return payload
+
+
+def stream(payload: dict[str, Any], codec_type: str) -> dict[str, Any] | None:
+    for item in payload.get("streams", []):
+        if item.get("codec_type") == codec_type:
+            return item
+    return None
+
+
+def number(value: object) -> float | None:
+    if value in (None, "", "N/A"):
+        return None
+    return float(str(value))
+
+
+def decode_pcm(ffmpeg: Path, video: Path, timeout: int) -> tuple[array.array[int], list[str], str]:
+    argv = [
+        str(ffmpeg),
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel",
+        "warning",
+        "-err_detect",
+        "ignore_err",
+        "-i",
+        str(video),
+        "-map",
+        "0:a:0",
+        "-vn",
+        "-acodec",
+        "pcm_s16le",
+        "-f",
+        "s16le",
+        "-",
+    ]
+    completed = run(argv, timeout)
+    diagnostic = completed.stderr.decode("utf-8", errors="replace")
+    if completed.returncode != 0:
+        raise RuntimeError(diagnostic.strip() or "FFmpeg audio decode failed")
+    if len(completed.stdout) % 2:
+        raise ValueError("decoded PCM byte count is not aligned to signed 16-bit samples")
+    samples: array.array[int] = array.array("h")
+    samples.frombytes(completed.stdout)
+    if sys.byteorder != "little":
+        samples.byteswap()
+    return samples, argv, diagnostic
+
+
+def analyze(
+    video: Path,
+    output: Path,
+    *,
+    ffmpeg: Path | None,
+    ffprobe: Path | None,
+    host_profile_id: str | None = None,
+    timeout: int = 3600,
+) -> dict[str, object]:
+    video = video.expanduser().resolve(strict=True)
+    output = output.expanduser().resolve()
+    output.mkdir(parents=True, exist_ok=False)
+    started = monotonic()
+
+    if ffmpeg is None or ffprobe is None:
+        missing = [
+            name
+            for name, value in (("ffmpeg", ffmpeg), ("ffprobe", ffprobe))
+            if value is None
+        ]
+        result: dict[str, object] = {
+            "schema_version": 1,
+            "module": "audio_samples",
+            "status": "unavailable",
+            "missing_tools": missing,
+            "host_profile": host_profile_id,
+            "input": {"path": str(video), "sha256": sha256(video)},
+        }
+    else:
+        metadata = probe(ffprobe, video, timeout)
+        audio = stream(metadata, "audio")
+        video_stream = stream(metadata, "video")
+        if audio is None:
+            result = {
+                "schema_version": 1,
+                "module": "audio_samples",
+                "status": "not_applicable",
+                "reason": "no audio stream",
+                "host_profile": host_profile_id,
+                "input": {"path": str(video), "sha256": sha256(video)},
+                "probe": metadata,
+            }
+        else:
+            samples, command, diagnostic = decode_pcm(ffmpeg, video, timeout)
+            sample_rate = int(audio["sample_rate"])
+            channels = int(audio["channels"])
+            scalar_count = len(samples)
+            frame_count = scalar_count // channels
+            zero_count = sum(value == 0 for value in samples)
+            decoded_duration = frame_count / sample_rate
+            audio_duration = number(audio.get("duration"))
+            video_duration = number(video_stream.get("duration")) if video_stream else None
+            if video_duration is None:
+                video_duration = number(metadata.get("format", {}).get("duration"))
+            duration_difference = (
+                None
+                if video_duration is None
+                else round(video_duration - decoded_duration, 9)
+            )
+            finding = {
+                "id": "AUDIO_EXACT_ZERO_SAMPLES",
+                "severity": "medium",
+                "description": "Exact signed-16 PCM zero samples were counted after deterministic audio decoding.",
+                "evidence_refs": ["audio_samples/audio_samples.json", "audio_samples/ffmpeg_stderr.txt"],
+                "requires_reference": False,
+                "host_profile": host_profile_id,
+                "observations": {
+                    "scalar_sample_count": scalar_count,
+                    "audio_frame_count": frame_count,
+                    "exact_zero_scalar_sample_count": zero_count,
+                    "exact_zero_scalar_sample_fraction": (
+                        zero_count / scalar_count if scalar_count else None
+                    ),
+                    "sample_rate": sample_rate,
+                    "channels": channels,
+                    "decoded_audio_duration_seconds": decoded_duration,
+                    "declared_audio_duration_seconds": audio_duration,
+                    "video_duration_seconds": video_duration,
+                    "video_minus_decoded_audio_seconds": duration_difference,
+                },
+                "mundane_explanation": (
+                    "Exact zeros can result from silence, muting, padding, capture behavior, or processing. "
+                    "The count is an observation and not an authenticity conclusion."
+                ),
+            }
+            result = {
+                "schema_version": 1,
+                "module": "audio_samples",
+                "status": "completed",
+                "created_at_utc": datetime.now(UTC).isoformat(),
+                "duration_seconds": round(monotonic() - started, 6),
+                "host_profile": host_profile_id,
+                "input": {
+                    "path": str(video),
+                    "size_bytes": video.stat().st_size,
+                    "sha256": sha256(video),
+                },
+                "command": command,
+                "probe": metadata,
+                "findings": [finding],
+            }
+            (output / "ffmpeg_stderr.txt").write_text(diagnostic, encoding="utf-8")
+
+    (output / "audio_samples.json").write_text(
+        json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return result
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="video-forensics-audio-samples")
+    parser.add_argument("video", type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--ffmpeg")
+    parser.add_argument("--ffprobe")
+    parser.add_argument("--host-profile-id")
+    parser.add_argument("--timeout", type=int, default=3600)
+    args = parser.parse_args()
+    try:
+        result = analyze(
+            args.video,
+            args.output,
+            ffmpeg=find_binary("ffmpeg", args.ffmpeg),
+            ffprobe=find_binary("ffprobe", args.ffprobe),
+            host_profile_id=args.host_profile_id,
+            timeout=args.timeout,
+        )
+    except (FileNotFoundError, FileExistsError, KeyError, RuntimeError, TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps({"status": result["status"]}, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

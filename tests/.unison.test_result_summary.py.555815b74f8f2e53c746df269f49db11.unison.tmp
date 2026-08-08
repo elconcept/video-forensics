@@ -1,0 +1,44 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from video_forensics.native.result_summary import create_summary
+
+
+def test_creates_one_human_readable_summary(tmp_path: Path) -> None:
+    module = tmp_path / "decoder"
+    module.mkdir()
+    (module / "result.json").write_text(
+        json.dumps(
+            {
+                "module": "decoder_matrix_report",
+                "status": "completed",
+                "input": {"path": "evidence/a.mp4", "sha256": "abc"},
+                "frame_count": 192,
+                "findings": [
+                    {
+                        "id": "DECODER_FRAME_COUNT_DIVERGENCE",
+                        "severity": "high",
+                        "description": "Different frame counts.",
+                        "observations": {"minimum": 190, "maximum": 236},
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    output = create_summary(tmp_path)
+    text = output.read_text(encoding="utf-8")
+    assert output.name == "SUMMARY.md"
+    assert "# Podsumowanie analizy" in text
+    assert "DECODER_FRAME_COUNT_DIVERGENCE" in text
+    assert "evidence/a.mp4" in text
+    assert "decoder/result.json" in text
+
+
+def test_summary_handles_empty_result_directory(tmp_path: Path) -> None:
+    output = create_summary(tmp_path)
+    text = output.read_text(encoding="utf-8")
+    assert "Odczytane dokumenty JSON: `0`" in text
+    assert "Nie znaleziono strukturalnych ustaleń" in text

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Raport z analizy informatycznej nagrania wideo</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; max-width: 900px; margin: 0 auto; padding: 20px; }
+        h1, h2, h3 { color: #1a365d; }
+        .summary-box { background-color: #f87171; color: white; padding: 15px; border-radius: 8px; font-weight: bold; text-align: center; font-size: 1.2em; margin-bottom: 20px; }
+        .info-box { background-color: #f1f5f9; border-left: 4px solid #3b82f6; padding: 15px; margin-bottom: 20px; }
+        .finding { margin-bottom: 20px; border-bottom: 1px solid #e2e8f0; padding-bottom: 15px; }
+        .term-explanation { font-size: 0.9em; color: #475569; font-style: italic; display: block; margin-top: 5px; }
+        .caveat { background-color: #fef08a; padding: 10px; border-radius: 5px; border-left: 4px solid #eab308; }
+    </style>
+</head>
+<body>
+
+    <h1>Raport z analizy śledczej pliku wideo</h1>
+    
+    <div class="summary-box">
+        WYNIK BADANIA: MATERIAŁ ZMANIPULOWANY (TAMPERED)<br>
+        Prawdopodobieństwo manipulacji: 83.6% | Poziom pewności analizy: 90.4%
+    </div>
+
+    <div class="info-box">
+        <h2>Metadane dowodu</h2>
+        <ul>
+            <li><strong>Plik:</strong> /home/tom/projects/quevidkit/work/evidence/1796.mp4[cite: 1, 2]</li>
+            <li><strong>Sygnatura pliku (SHA256):</strong> 8560a2d703c1025ba7c5b4deef5e53f89b9ee0c1026cae67b4145e34d137a903 <span class="term-explanation">(Unikalny identyfikator cyfrowy przypisany do tego konkretnego pliku, pozwalający na weryfikację, czy plik nie został zmieniony od czasu zabezpieczenia)</span>[cite: 1, 2]</li>
+            <li><strong>Czas trwania:</strong> 15.67 sekundy[cite: 1, 2]</li>
+        </ul>
+    </div>
+
+    <h2>Kluczowe dowody na modyfikację nagrania</h2>
+    <p>Oprogramowanie wykryło silne anomalie (nieprawidłowości) w 7 z 15 przeprowadzonych testów[cite: 1]. Co istotne, błędy te występują w tym samym czasie w czterech niezależnych kategoriach technicznych (dźwięk, struktura pliku, metadane, jakość obrazu)[cite: 1]. Równoczesne wystąpienie tych błędów w różnych warstwach pliku znacznie zmniejsza ryzyko fałszywego oskarżenia o manipulację (fałszywego alarmu)[cite: 1].</p>
+
+    <div class="finding">
+        <h3>1. Niezgodność długości ścieżek (Metadane)</h3>
+        <p>Wykryto, że zadeklarowany czas trwania ścieżki dźwiękowej i ścieżki wideo nie zgadza się ze sobą[cite: 1, 2].</p>
+        <span class="term-explanation"><strong>Co to oznacza?</strong> Pliki wideo przechowują w swoim "nagłówku" (metadanych) informacje organizacyjne. Różnica w czasach trwania zazwyczaj wskazuje, że plik był przycinany, klejony z innych fragmentów (tzw. "re-muxing") lub modyfikowany bez poprawnego zaktualizowania informacji technicznych przez program edytujący[cite: 1].</span>
+    </div>
+
+    <div class="finding">
+        <h3>2. Nienaturalne przerwy w ścieżce dźwiękowej (Analiza Audio)</h3>
+        <p>System zarejestrował gwałtowne zmiany w charakterystyce dźwięku (m.in. w 0.00s, 3.80s, 8.35s i 12.45s)[cite: 1, 2].</p>
+        <span class="term-explanation"><strong>Co to oznacza?</strong> Komputer mierzy energię dźwięku i jego widmo w krótkich fragmentach. Zbyt ostre, nienaturalne przeskoki w tych parametrach świadczą o tym, że połączono ze sobą fragmenty nagrane w innym środowisku, na innych ustawieniach, lub za pomocą innych mikrofonów (cięcia montażowe)[cite: 1]. Mniej prawdopodobną, acz naturalną przyczyną, mogłyby być nagłe, głośne dźwięki z tła[cite: 1].</span>
+    </div>
+
+    <div class="finding">
+        <h3>3. Ślady podwójnej kompresji (Struktura Kodeka)</h3>
+        <p>Wykryto matematyczne ślady wskazujące na to, że plik był poddany ponownemu procesowi kodowania. Odkryto pozostałości starszej struktury klatek wewnątrz nowej[cite: 1, 2].</p>
+        <span class="term-explanation"><strong>Co to oznacza?</strong> Kiedy film jest zapisywany w telefonie, system układa klatki w określone grupy (tzw. GOP). Jeżeli ten sam film zostanie wrzucony do programu montażowego i zapisany ponownie, powstaje nowa struktura, ale z pozostawieniem swoistego odcisku palca poprzedniego zapisu (tzw. "podwójna kompresja")[cite: 1]. Należy jednak zaznaczyć, że platformy społecznościowe czy komunikatory również kompresują pliki, co samo w sobie nie musi być dowodem na złą wolę[cite: 1]. W tym jednak przypadku wskaźnik ten łączy się z wieloma innymi badaniami[cite: 1].</span>
+    </div>
+
+    <div class="finding">
+        <h3>4. Skoki poziomu cyfrowego szumu (Jakość Obrazu)</h3>
+        <p>Aplikacja wykryła wyraźne zmiany w poziomie szumu tła (m.in w 0.5s, 1.6s oraz 2.1s)[cite: 1, 2]. Dodatkowo, analiza błędów kompresji (tzw. analiza ELA) potwierdziła zmiany i odstępstwa od normy w ułamkach sekund 0.7, 1.3 oraz 12.6[cite: 1, 2].</p>
+        <span class="term-explanation"><strong>Co to oznacza?</strong> Każda kamera (i każde warunki oświetleniowe) generuje specyficzny szum cyfrowy, niewidoczny często gołym okiem. Gwałtowny przeskok w pomiarze szumu dokładnie w tych samych miejscach na osi czasu sugeruje, że materiał w tych punktach został wstawiony z innego urządzenia lub uległ drastycznej zmianie z powodu edycji komputerowej[cite: 1].</span>
+    </div>
+
+    <div class="caveat">
+        <h3>Zastrzeżenia techniczne (Czerwone flagi)</h3>
+        <p>Jedno z badań oprogramowania - sprawdzające "przesunięcia jakości klatek" (frame quality shift) - napotkało błąd techniczny zapisu matematycznego oprogramowania i musiało zostać pominięte ("operands could not be broadcast together...")[cite: 1, 2]. Brak tego pojedynczego testu nie wpływa na wiarygodność innych, wyżej wymienionych 7 pozytywnych trafień[cite: 1].</p>
+    </div>
+
+</body>
+</html>

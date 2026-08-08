@@ -1,0 +1,27 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from video_forensics.tools.hevc_bitstream import _findings, parse_annex_b
+
+
+def nal(nal_type: int, temporal_id_plus1: int = 1, payload: bytes = b"x") -> bytes:
+    first = (nal_type << 1) & 0x7E
+    second = temporal_id_plus1 & 0x07
+    return b"\x00\x00\x00\x01" + bytes((first, second)) + payload
+
+
+def test_parses_nal_headers_and_irap(tmp_path: Path) -> None:
+    path = tmp_path / "test.hevc"
+    path.write_bytes(nal(32) + nal(33) + nal(34) + nal(19) + nal(1))
+    rows = parse_annex_b(path)
+    assert [row["nal_unit_name"] for row in rows] == ["VPS", "SPS", "PPS", "IDR_W_RADL", "TRAIL_R"]
+    assert sum(bool(row["is_irap"]) for row in rows) == 1
+    assert _findings(rows) == []
+
+
+def test_reports_invalid_temporal_id_and_missing_irap(tmp_path: Path) -> None:
+    path = tmp_path / "broken.hevc"
+    path.write_bytes(nal(1, temporal_id_plus1=0))
+    kinds = {item["kind"] for item in _findings(parse_annex_b(path))}
+    assert kinds == {"invalid_temporal_id_plus1", "no_irap_nal_found"}

@@ -1,0 +1,29 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from video_forensics.native.prepare_comparison_views import prepare
+
+
+def make_source(root: Path, source_id: str) -> None:
+    source = root / source_id
+    source.mkdir(parents=True)
+    (source / "import_receipt.json").write_text(
+        json.dumps({"source_id": source_id}), encoding="utf-8"
+    )
+    for name in ("software", "software_perceptual", "software_normalized"):
+        run = source / name
+        run.mkdir()
+        (run / "manifest.json").write_text("{}", encoding="utf-8")
+
+
+def test_prepares_three_comparison_views(tmp_path: Path) -> None:
+    imported = tmp_path / "imported"
+    imported.mkdir()
+    make_source(imported, "x1")
+    result = prepare(imported, tmp_path / "views", copy=True)
+    assert len(result["views"]["decoder"]) == 1
+    assert len(result["views"]["perceptual"]) == 1
+    assert len(result["views"]["normalized"]) == 1
+    assert (tmp_path / "views" / "perceptual" / "x1__software_perceptual").is_dir()

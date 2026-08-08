@@ -1,0 +1,58 @@
+from pathlib import Path
+
+path = Path("src/video_forensics/native/perceptual_decoder_run.py")
+text = path.read_text(encoding="utf-8")
+
+if "def sha256(" not in text:
+    anchor = "FRAME_BYTES = WIDTH * HEIGHT\n\n\n"
+    function = '''def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(8 * 1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+'''
+    if anchor not in text:
+        raise SystemExit("Cannot find perceptual constants")
+    text = text.replace(anchor, anchor + function, 1)
+
+old = '"input": {"path": str(video), "size_bytes": video.stat().st_size},'
+new = '''"input": {
+            "path": str(video),
+            "size_bytes": video.stat().st_size,
+            "sha256": sha256(video),
+        },'''
+if old not in text:
+    raise SystemExit("Cannot find perceptual input manifest")
+path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+compare = Path("src/video_forensics/native/compare_perceptual_runs.py")
+source = compare.read_text(encoding="utf-8")
+source = source.replace(
+    '''    runs = {
+        directory.name: sorted((directory / "frames").glob("frame_*.gray"))
+        for directory in directories
+    }
+''',
+    '''    manifests = {
+        directory.name: json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
+        for directory in directories
+    }
+    input_hashes = {
+        manifest.get("input", {}).get("sha256") for manifest in manifests.values()
+    }
+    if None in input_hashes or len(input_hashes) != 1:
+        raise ValueError("perceptual runs do not share one verified input SHA-256")
+    runs = {
+        directory.name: sorted((directory / "frames").glob("frame_*.gray"))
+        for directory in directories
+    }
+''',
+)
+source = source.replace(
+    '        "schema_version": 1,\n        "normalization":',
+    '        "schema_version": 1,\n        "input_sha256": next(iter(input_hashes)),\n        "normalization":',
+)
+compare.write_text(source, encoding="utf-8")

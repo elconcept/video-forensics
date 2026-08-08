@@ -1,0 +1,30 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from video_forensics.native.hevc_legacy_discovery import discover
+
+
+def write(path: Path, value: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value), encoding="utf-8")
+
+
+def test_selects_single_legacy_semantic_result(tmp_path: Path) -> None:
+    write(tmp_path / "baseline/hevc_bitstream.json", {"nal_units": [], "sps": [], "pps": []})
+    write(
+        tmp_path / "hevc_parser_migration/h265nal_normalized.json",
+        {"primary_backend": "h265nal", "nal_units": []},
+    )
+    result = discover(tmp_path)
+    assert result["status"] == "selected"
+    assert result["selected_legacy_json"].endswith("hevc_bitstream.json")
+
+
+def test_refuses_equal_top_candidates(tmp_path: Path) -> None:
+    write(tmp_path / "a/hevc.json", {"nal_units": []})
+    write(tmp_path / "b/hevc.json", {"nal_units": []})
+    result = discover(tmp_path)
+    assert result["status"] == "ambiguous"
+    assert result["selected_legacy_json"] is None

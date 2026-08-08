@@ -1,0 +1,223 @@
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+from typing import Any
+
+from video_forensics.tools.hevc_sps import (
+    BitReader,
+    remove_emulation_prevention,
+    skip_scaling_list_data,
+)
+
+
+@dataclass(frozen=True)
+class ExtendedPPS:
+    pps_id: int
+    sps_id: int
+    dependent_slice_segments_enabled_flag: int
+    output_flag_present_flag: int
+    num_extra_slice_header_bits: int
+    sign_data_hiding_enabled_flag: int
+    cabac_init_present_flag: int
+    num_ref_idx_l0_default_active: int
+    num_ref_idx_l1_default_active: int
+    init_qp_minus26: int
+    constrained_intra_pred_flag: int
+    transform_skip_enabled_flag: int
+    cu_qp_delta_enabled_flag: int
+    diff_cu_qp_delta_depth: int | None
+    cb_qp_offset: int
+    cr_qp_offset: int
+    slice_chroma_qp_offsets_present_flag: int
+    weighted_pred_flag: int
+    weighted_bipred_flag: int
+    transquant_bypass_enabled_flag: int
+    tiles: dict[str, Any] | None
+    entropy_coding_sync_enabled_flag: int
+    loop_filter_across_slices_enabled_flag: int
+    deblocking: dict[str, Any] | None
+    scaling_list_data_present_flag: int
+    lists_modification_present_flag: int
+    log2_parallel_merge_level: int
+    slice_segment_header_extension_present_flag: int
+    extension: dict[str, Any] | None
+    parsed_bits: int
+    remaining_bits: int
+
+
+def parse_tiles(reader: BitReader) -> dict[str, Any]:
+    num_columns_minus1 = reader.ue()
+    num_rows_minus1 = reader.ue()
+    if num_columns_minus1 > 19:
+        raise ValueError("num_tile_columns_minus1 exceeds 19")
+    if num_rows_minus1 > 21:
+        raise ValueError("num_tile_rows_minus1 exceeds 21")
+    uniform_spacing = reader.bit()
+    column_width_minus1: list[int] = []
+    row_height_minus1: list[int] = []
+    if not uniform_spacing:
+        column_width_minus1 = [reader.ue() for _ in range(num_columns_minus1)]
+        row_height_minus1 = [reader.ue() for _ in range(num_rows_minus1)]
+    return {
+        "num_tile_columns": num_columns_minus1 + 1,
+        "num_tile_rows": num_rows_minus1 + 1,
+        "uniform_spacing_flag": uniform_spacing,
+        "column_width_minus1": column_width_minus1,
+        "row_height_minus1": row_height_minus1,
+        "loop_filter_across_tiles_enabled_flag": reader.bit(),
+    }
+
+
+def parse_deblocking(reader: BitReader) -> dict[str, Any] | None:
+    present = reader.bit()
+    if not present:
+        return None
+    override_enabled = reader.bit()
+    disabled = reader.bit()
+    result: dict[str, Any] = {
+        "control_present_flag": 1,
+        "override_enabled_flag": override_enabled,
+        "disabled_flag": disabled,
+    }
+    if not disabled:
+        beta_div2 = reader.se()
+        tc_div2 = reader.se()
+        if not -6 <= beta_div2 <= 6 or not -6 <= tc_div2 <= 6:
+            raise ValueError("PPS deblocking offset_div2 is outside [-6, 6]")
+        result["beta_offset_div2"] = beta_div2
+        result["tc_offset_div2"] = tc_div2
+        result["beta_offset"] = beta_div2 * 2
+        result["tc_offset"] = tc_div2 * 2
+    return result
+
+
+def parse_range_extension(reader: BitReader, transform_skip_enabled: int) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    if transform_skip_enabled:
+        result["log2_max_transform_skip_block_size"] = reader.ue() + 2
+    result["cross_component_prediction_enabled_flag"] = reader.bit()
+    chroma_list_enabled = reader.bit()
+    result["chroma_qp_offset_list_enabled_flag"] = chroma_list_enabled
+    if chroma_list_enabled:
+        result["diff_cu_chroma_qp_offset_depth"] = reader.ue()
+        list_len_minus1 = reader.ue()
+        if list_len_minus1 > 5:
+            raise ValueError("chroma_qp_offset_list_len_minus1 exceeds 5")
+        result["chroma_qp_offset_list_len_minus1"] = list_len_minus1
+        result["cb_qp_offset_list"] = []
+        result["cr_qp_offset_list"] = []
+        for _ in range(list_len_minus1 + 1):
+            cb = reader.se()
+            cr = reader.se()
+            if not -12 <= cb <= 12 or not -12 <= cr <= 12:
+                raise ValueError("PPS chroma QP offset list value is outside [-12, 12]")
+            result["cb_qp_offset_list"].append(cb)
+            result["cr_qp_offset_list"].append(cr)
+    result["log2_sao_offset_scale_luma"] = reader.ue()
+    result["log2_sao_offset_scale_chroma"] = reader.ue()
+    return result
+
+
+def parse_pps_complete(nal_payload: bytes) -> ExtendedPPS:
+    if len(nal_payload) < 3:
+        raise ValueError("PPS NAL is too short")
+    reader = BitReader(remove_emulation_prevention(nal_payload[2:]))
+    pps_id = reader.ue()
+    sps_id = reader.ue()
+    if pps_id > 63:
+        raise ValueError("pps_pic_parameter_set_id exceeds 63")
+    if sps_id > 15:
+        raise ValueError("pps_seq_parameter_set_id exceeds 15")
+    dependent = reader.bit()
+    output_flag = reader.bit()
+    extra_bits = reader.bits(3)
+    sign_hiding = reader.bit()
+    cabac_init = reader.bit()
+    ref_l0 = reader.ue() + 1
+    ref_l1 = reader.ue() + 1
+    if ref_l0 > 15 or ref_l1 > 15:
+        raise ValueError("default active reference index count exceeds 15")
+    init_qp_minus26 = reader.se()
+    if not -26 <= init_qp_minus26 <= 25:
+        raise ValueError("init_qp_minus26 is outside [-26, 25]")
+    constrained_intra = reader.bit()
+    transform_skip = reader.bit()
+    cu_qp_delta = reader.bit()
+    diff_cu_depth = reader.ue() if cu_qp_delta else None
+    cb_qp_offset = reader.se()
+    cr_qp_offset = reader.se()
+    if not -12 <= cb_qp_offset <= 12 or not -12 <= cr_qp_offset <= 12:
+        raise ValueError("PPS chroma QP offset is outside [-12, 12]")
+    slice_chroma_offsets = reader.bit()
+    weighted_pred = reader.bit()
+    weighted_bipred = reader.bit()
+    transquant_bypass = reader.bit()
+    tiles_enabled = reader.bit()
+    entropy_sync = reader.bit()
+    tiles = parse_tiles(reader) if tiles_enabled else None
+    loop_filter_across_slices = reader.bit()
+    deblocking = parse_deblocking(reader)
+    scaling_present = reader.bit()
+    if scaling_present:
+        skip_scaling_list_data(reader)
+    lists_modification = reader.bit()
+    log2_parallel_merge_level = reader.ue() + 2
+    slice_header_extension = reader.bit()
+    extension_present = reader.bit()
+    extension = None
+    if extension_present:
+        range_extension = reader.bit()
+        multilayer_extension = reader.bit()
+        extension_3d = reader.bit()
+        scc_extension = reader.bit()
+        extension_4bits = reader.bits(4)
+        extension = {
+            "range_extension_flag": range_extension,
+            "multilayer_extension_flag": multilayer_extension,
+            "3d_extension_flag": extension_3d,
+            "scc_extension_flag": scc_extension,
+            "extension_4bits": extension_4bits,
+        }
+        if range_extension:
+            extension["range"] = parse_range_extension(reader, transform_skip)
+        if multilayer_extension or extension_3d or scc_extension or extension_4bits:
+            extension["unparsed_extension_bits"] = reader.bits_left
+            reader.position = len(reader.data) * 8
+
+    return ExtendedPPS(
+        pps_id=pps_id,
+        sps_id=sps_id,
+        dependent_slice_segments_enabled_flag=dependent,
+        output_flag_present_flag=output_flag,
+        num_extra_slice_header_bits=extra_bits,
+        sign_data_hiding_enabled_flag=sign_hiding,
+        cabac_init_present_flag=cabac_init,
+        num_ref_idx_l0_default_active=ref_l0,
+        num_ref_idx_l1_default_active=ref_l1,
+        init_qp_minus26=init_qp_minus26,
+        constrained_intra_pred_flag=constrained_intra,
+        transform_skip_enabled_flag=transform_skip,
+        cu_qp_delta_enabled_flag=cu_qp_delta,
+        diff_cu_qp_delta_depth=diff_cu_depth,
+        cb_qp_offset=cb_qp_offset,
+        cr_qp_offset=cr_qp_offset,
+        slice_chroma_qp_offsets_present_flag=slice_chroma_offsets,
+        weighted_pred_flag=weighted_pred,
+        weighted_bipred_flag=weighted_bipred,
+        transquant_bypass_enabled_flag=transquant_bypass,
+        tiles=tiles,
+        entropy_coding_sync_enabled_flag=entropy_sync,
+        loop_filter_across_slices_enabled_flag=loop_filter_across_slices,
+        deblocking=deblocking,
+        scaling_list_data_present_flag=scaling_present,
+        lists_modification_present_flag=lists_modification,
+        log2_parallel_merge_level=log2_parallel_merge_level,
+        slice_segment_header_extension_present_flag=slice_header_extension,
+        extension=extension,
+        parsed_bits=reader.position,
+        remaining_bits=reader.bits_left,
+    )
+
+
+def pps_to_dict(pps: ExtendedPPS) -> dict[str, Any]:
+    return asdict(pps)

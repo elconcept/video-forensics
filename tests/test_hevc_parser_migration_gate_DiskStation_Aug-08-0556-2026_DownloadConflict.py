@@ -1,0 +1,38 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from video_forensics.native.hevc_parser_migration_gate import audit
+
+
+def test_step61_does_not_satisfy_migration_plan_by_itself(tmp_path: Path) -> None:
+    (tmp_path / "src/video_forensics/native").mkdir(parents=True)
+    (tmp_path / "src/video_forensics/native/orphan_decoder_manifest.py").write_text(
+        "decoder_id = 'libde265'\n", encoding="utf-8"
+    )
+    result = audit(tmp_path, tmp_path / "gate.json")
+    assert result["passed"] is False
+    failed = {
+        item["check_id"]
+        for item in result["checks"]
+        if not item["passed"]
+    }
+    assert "H265NAL_PINNED" in failed
+    assert "CPP_JSON_WRAPPER" in failed
+    assert "H265NAL_PRIMARY" in failed
+    assert "REFERENCE_BACKEND_COMPARISON" in failed
+
+
+def test_gate_recognizes_adapter_but_not_full_migration(tmp_path: Path) -> None:
+    native = tmp_path / "src/video_forensics/native"
+    native.mkdir(parents=True)
+    (native / "h265nal_adapter.py").write_text("", encoding="utf-8")
+    (native / "h265nal_pipeline.py").write_text(
+        'primary_backend = "h265nal"\nlegacy_comparison = True\n',
+        encoding="utf-8",
+    )
+    result = audit(tmp_path, tmp_path / "gate.json")
+    checks = {item["check_id"]: item["passed"] for item in result["checks"]}
+    assert checks["H265NAL_ADAPTER"] is True
+    assert checks["H265NAL_PRIMARY"] is True
+    assert result["passed"] is False

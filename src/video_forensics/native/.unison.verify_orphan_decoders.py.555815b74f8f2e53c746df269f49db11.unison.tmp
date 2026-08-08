@@ -1,0 +1,193 @@
+from __future__ import annotations
+
+import argparse
+import itertools
+import json
+import math
+import sys
+from pathlib import Path
+
+import numpy as np
+from PIL import Image
+
+
+def load_manifest(root: Path) -> dict[str, object]:
+    path = root / "decode_orphan_variants.json"
+    if not path.is_file():
+        raise FileNotFoundError(f"decoder manifest not found: {path}")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise TypeError(f"decoder manifest must be a JSON object: {path}")
+    return payload
+
+
+def image_files(root: Path, variant_id: str) -> list[Path]:
+    return sorted((root / variant_id).glob("frame_*.png"))
+
+
+def load_rgb(path: Path) -> np.ndarray:
+    with Image.open(path) as image:
+        return np.asarray(image.convert("RGB"), dtype=np.float64)
+
+
+def frame_metrics(left: np.ndarray, right: np.ndarray) -> dict[str, float | None]:
+    if left.shape != right.shape:
+        raise ValueError(f"frame geometry differs: {left.shape} != {right.shape}")
+    difference = left - right
+    mae = float(np.mean(np.abs(difference)))
+    rmse = float(math.sqrt(np.mean(difference * difference)))
+    left_luma = np.mean(left, axis=2).ravel()
+    right_luma = np.mean(right, axis=2).ravel()
+    left_centered = left_luma - left_luma.mean()
+    right_centered = right_luma - right_luma.mean()
+    denominator = float(
+        math.sqrt(
+            np.sum(left_centered * left_centered)
+            * np.sum(right_centered * right_centered)
+        )
+    )
+    ncc = None
+    if denominator != 0.0:
+        ncc = float(np.sum(left_centered * right_centered) / denominator)
+    return {
+        "mae": round(mae, 9),
+        "rmse": round(rmse, 9),
+        "ncc": None if ncc is None else round(ncc, 9),
+        "identical_pixel_fraction": round(float(np.mean(left == right)), 9),
+    }
+
+
+def variant_ids(manifest: dict[str, object]) -> list[str]:
+    variants = manifest.get("variants")
+    if not isinstance(variants, list):
+        raise TypeError("decoder manifest variants must be a JSON list")
+    identifiers: list[str] = []
+    for variant in variants:
+        if not isinstance(variant, dict):
+            raise TypeError("decoder manifest variant must be a JSON object")
+        identifiers.append(str(variant["variant_id"]))
+    return identifiers
+
+
+def validate_manifests(manifests: dict[str, dict[str, object]]) -> list[str]:
+    identifiers = {tuple(variant_ids(manifest)) for manifest in manifests.values()}
+    if len(identifiers) != 1:
+        raise ValueError("decoder manifests do not contain identical variant identifiers")
+    stream_hash_sets = {
+        tuple(
+            str(variant["stream_sha256"])
+            for variant in manifest["variants"]
+            if isinstance(variant, dict)
+        )
+        for manifest in manifests.values()
+    }
+    if len(stream_hash_sets) != 1:
+        raise ValueError("decoder manifests do not reference identical variant streams")
+    return list(next(iter(identifiers)))
+
+
+def verify(decoder_roots: list[Path], output: Path) -> dict[str, object]:
+    if len(decoder_roots) < 2:
+        raise ValueError("at least two independent decoder outputs are required")
+    roots = [root.expanduser().resolve(strict=True) for root in decoder_roots]
+    manifests = {root.name: load_manifest(root) for root in roots}
+    if len(manifests) != len(roots):
+        raise ValueError("decoder output directory names must be unique")
+    variants = validate_manifests(manifests)
+
+    comparisons: list[dict[str, object]] = []
+    for left_root, right_root in itertools.combinations(roots, 2):
+        pair_rows: list[dict[str, object]] = []
+        for variant_id in variants:
+            left_frames = image_files(left_root, variant_id)
+            right_frames = image_files(right_root, variant_id)
+            maximum = max(len(left_frames), len(right_frames))
+            frame_rows: list[dict[str, object]] = []
+            for index in range(maximum):
+                if index >= len(left_frames) or index >= len(right_frames):
+                    frame_rows.append(
+                        {"frame_number": index + 1, "status": "missing_in_one_decoder"}
+                    )
+                    continue
+                frame_rows.append(
+                    {
+                        "frame_number": index + 1,
+                        "status": "compared",
+                        **frame_metrics(
+                            load_rgb(left_frames[index]), load_rgb(right_frames[index])
+                        ),
+                    }
+                )
+            compared = [row for row in frame_rows if row["status"] == "compared"]
+            ncc_values = [
+                float(row["ncc"])
+                for row in compared
+                if row.get("ncc") is not None
+            ]
+            pair_rows.append(
+                {
+                    "variant_id": variant_id,
+                    "left_frame_count": len(left_frames),
+                    "right_frame_count": len(right_frames),
+                    "minimum_ncc": min(ncc_values) if ncc_values else None,
+                    "mean_ncc": float(np.mean(ncc_values)) if ncc_values else None,
+                    "maximum_mae": max(
+                        (float(row["mae"]) for row in compared), default=None
+                    ),
+                    "frames": frame_rows,
+                }
+            )
+        comparisons.append(
+            {
+                "left_decoder": left_root.name,
+                "right_decoder": right_root.name,
+                "variants": pair_rows,
+            }
+        )
+
+    result: dict[str, object] = {
+        "schema_version": 1,
+        "module": "verify_orphan_decoders",
+        "decoder_count": len(roots),
+        "decoder_ids": [root.name for root in roots],
+        "variant_ids": variants,
+        "comparisons": comparisons,
+        "interpretation_boundary": (
+            "Cross-decoder agreement measures reproducibility of controlled reconstruction. "
+            "It does not by itself establish source authenticity or identify the removed IDR."
+        ),
+    }
+    output = output.expanduser().resolve()
+    output.mkdir(parents=True, exist_ok=False)
+    (output / "orphan_decoder_verification.json").write_text(
+        json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return result
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="video-forensics-verify-orphan-decoders")
+    parser.add_argument("decoder_root", action="append", type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    args = parser.parse_args()
+    try:
+        result = verify(args.decoder_root, args.output)
+    except (FileNotFoundError, FileExistsError, KeyError, TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    print(
+        json.dumps(
+            {
+                "decoder_count": result["decoder_count"],
+                "variant_count": len(result["variant_ids"]),
+                "output": str(args.output),
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,272 @@
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+from video_forensics.native.h265nal_normalizer import normalize
+
+
+def read_object(path: Path) -> dict[str, Any]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise TypeError(f"expected JSON object: {path}")
+    return value
+
+
+def resolve_tool(explicit: str | None, fallback: str) -> Path:
+    candidate = explicit or shutil.which(fallback)
+    if not candidate:
+        raise FileNotFoundError(f"cannot find {fallback}")
+    return Path(candidate).expanduser().resolve(strict=True)
+
+
+def tools_from_lock(repository: Path) -> tuple[Path, Path]:
+    lock = read_object(repository / "third_party/h265nal.lock.json")
+    return (
+        Path(str(lock["binary"])).expanduser().resolve(strict=True),
+        Path(str(lock["json_wrapper"])).expanduser().resolve(strict=True),
+    )
+
+
+def invoke_wrapper(
+    wrapper: Path,
+    h265nal: Path,
+    annex_b: Path,
+    timeout: int,
+) -> dict[str, Any]:
+    completed = subprocess.run(
+        [
+            str(wrapper),
+            "--h265nal",
+            str(h265nal),
+            "--input",
+            str(annex_b),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(completed.stderr.strip() or "h265nal wrapper failed")
+    value = json.loads(completed.stdout)
+    if not isinstance(value, dict):
+        raise TypeError("h265nal wrapper output must be a JSON object")
+    return value
+
+
+def ffprobe_control(ffprobe: Path, annex_b: Path, timeout: int) -> dict[str, Any]:
+    argv = [
+        str(ffprobe),
+        "-v",
+        "error",
+        "-f",
+        "hevc",
+        "-show_packets",
+        "-show_entries",
+        "packet=pos,size,flags",
+        "-of",
+        "json",
+        str(annex_b),
+    ]
+    completed = subprocess.run(
+        argv,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+    result: dict[str, Any] = {
+        "backend": "ffprobe",
+        "argv": argv,
+        "returncode": completed.returncode,
+        "stderr": completed.stderr,
+        "success": completed.returncode == 0,
+    }
+    if completed.returncode == 0:
+        value = json.loads(completed.stdout)
+        packets = value.get("packets", []) if isinstance(value, dict) else []
+        result["packet_count"] = len(packets) if isinstance(packets, list) else 0
+        result["packets"] = packets
+    return result
+
+
+def legacy_summary(path: Path | None) -> dict[str, Any]:
+    if path is None:
+        return {"backend": "legacy", "status": "not_requested"}
+    value = read_object(path.expanduser().resolve(strict=True))
+    nals = value.get("nal_units")
+    if not isinstance(nals, list):
+        nals = value.get("nals")
+    if not isinstance(nals, list):
+        return {
+            "backend": "legacy",
+            "status": "unusable_schema",
+            "path": str(path),
+        }
+    types = [
+        item.get("nal_unit_type")
+        for item in nals
+        if isinstance(item, dict) and item.get("nal_unit_type") is not None
+    ]
+    return {
+        "backend": "legacy",
+        "status": "comparison_only",
+        "path": str(path),
+        "nal_count": len(nals),
+        "nal_unit_types": types,
+    }
+
+
+def compare(
+    primary: dict[str, Any],
+    control: dict[str, Any],
+    legacy: dict[str, Any],
+) -> dict[str, Any]:
+    primary_types = [item.get("nal_unit_type") for item in primary["nal_units"]]
+    checks: list[dict[str, Any]] = []
+    if legacy.get("status") == "comparison_only":
+        checks.extend(
+            [
+                {
+                    "id": "PRIMARY_LEGACY_NAL_COUNT",
+                    "passed": primary["nal_count"] == legacy.get("nal_count"),
+                    "primary": primary["nal_count"],
+                    "legacy": legacy.get("nal_count"),
+                },
+                {
+                    "id": "PRIMARY_LEGACY_NAL_TYPES",
+                    "passed": primary_types == legacy.get("nal_unit_types"),
+                    "primary": primary_types,
+                    "legacy": legacy.get("nal_unit_types"),
+                },
+            ]
+        )
+    control_success = bool(control.get("success"))
+    checks.append(
+        {
+            "id": "FFPROBE_CONTROL_EXECUTED",
+            "passed": control_success,
+            "returncode": control.get("returncode"),
+        }
+    )
+    requested = [item for item in checks if item["id"].startswith("PRIMARY_LEGACY")]
+    legacy_agreement = bool(requested) and all(item["passed"] for item in requested)
+    independent_control = control_success
+    return {
+        "checks": checks,
+        "legacy_agreement": legacy_agreement,
+        "independent_control_available": independent_control,
+        "authoritative_for_high_weight": independent_control,
+        "policy": (
+            "h265nal is primary. Legacy is comparison-only. High-weight findings "
+            "require an independently successful FFmpeg/GStreamer control path."
+        ),
+    }
+
+
+def run(
+    annex_b: Path,
+    output: Path,
+    *,
+    repository: Path,
+    wrapper: str | None,
+    h265nal: str | None,
+    ffprobe: str | None,
+    legacy_json: Path | None,
+    timeout: int,
+) -> dict[str, Any]:
+    repository = repository.expanduser().resolve(strict=True)
+    annex_b = annex_b.expanduser().resolve(strict=True)
+    if wrapper is None or h265nal is None:
+        locked_h265nal, locked_wrapper = tools_from_lock(repository)
+        h265nal_path = resolve_tool(h265nal, str(locked_h265nal))
+        wrapper_path = resolve_tool(wrapper, str(locked_wrapper))
+    else:
+        h265nal_path = resolve_tool(h265nal, h265nal)
+        wrapper_path = resolve_tool(wrapper, wrapper)
+    ffprobe_path = resolve_tool(ffprobe, "ffprobe")
+
+    wrapper_result = invoke_wrapper(wrapper_path, h265nal_path, annex_b, timeout)
+    primary = normalize(wrapper_result)
+    control = ffprobe_control(ffprobe_path, annex_b, timeout)
+    legacy = legacy_summary(legacy_json)
+    comparison = compare(primary, control, legacy)
+
+    result = {
+        "schema_version": 1,
+        "module": "hevc_parser_authority",
+        "primary_backend": "h265nal",
+        "control_backend": "ffprobe",
+        "legacy_backend_role": "comparison_only",
+        "input": str(annex_b),
+        "primary": primary,
+        "control": control,
+        "legacy": legacy,
+        "comparison": comparison,
+    }
+    output = output.expanduser().resolve()
+    output.mkdir(parents=True, exist_ok=False)
+    (output / "h265nal_wrapper.json").write_text(
+        json.dumps(wrapper_result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (output / "h265nal_normalized.json").write_text(
+        json.dumps(primary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (output / "ffprobe_control.json").write_text(
+        json.dumps(control, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (output / "parser_authority.json").write_text(
+        json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return result
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="video-forensics-hevc-parser-authority")
+    parser.add_argument("annex_b", type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--repository", type=Path, default=Path("."))
+    parser.add_argument("--wrapper")
+    parser.add_argument("--h265nal")
+    parser.add_argument("--ffprobe")
+    parser.add_argument("--legacy-json", type=Path)
+    parser.add_argument("--timeout", type=int, default=3600)
+    args = parser.parse_args()
+    try:
+        result = run(
+            args.annex_b,
+            args.output,
+            repository=args.repository,
+            wrapper=args.wrapper,
+            h265nal=args.h265nal,
+            ffprobe=args.ffprobe,
+            legacy_json=args.legacy_json,
+            timeout=args.timeout,
+        )
+    except (
+        FileNotFoundError,
+        FileExistsError,
+        json.JSONDecodeError,
+        OSError,
+        RuntimeError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(result["comparison"], indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

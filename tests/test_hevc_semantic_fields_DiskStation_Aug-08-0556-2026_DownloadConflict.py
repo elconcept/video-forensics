@@ -1,0 +1,39 @@
+from __future__ import annotations
+
+from video_forensics.native.hevc_semantic_fields import (
+    canonicalize,
+    category_coverage,
+)
+
+
+def test_canonicalizes_short_and_long_term_rps_fields() -> None:
+    fields = {
+        "slice.st_ref_pic_set.num_negative_pics": 2,
+        "slice.st_ref_pic_set.delta_poc_s0_minus1[0]": 0,
+        "slice.st_ref_pic_set.used_by_curr_pic_s0_flag[0]": 1,
+        "slice.num_long_term_sps": 1,
+        "slice.lt_idx_sps[0]": 0,
+        "slice.delta_poc_msb_cycle_lt[0]": 3,
+    }
+    result = canonicalize(fields)
+    assert result == {
+        "num_negative_pics": 2,
+        "delta_poc_s0_minus1[0]": 0,
+        "used_by_curr_pic_s0_flag[0]": 1,
+        "num_long_term_sps": 1,
+        "lt_idx_sps[0]": 0,
+        "delta_poc_msb_cycle_lt[0]": 3,
+    }
+
+
+def test_reports_category_coverage() -> None:
+    coverage = category_coverage(
+        {
+            "num_negative_pics",
+            "num_positive_pics",
+            "delta_poc_s0_minus1[0]",
+            "num_long_term_pics",
+        }
+    )
+    assert coverage["short_term_rps"]["present_count"] == 3
+    assert coverage["long_term_rps"]["present_count"] == 1

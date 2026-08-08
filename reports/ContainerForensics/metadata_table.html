@@ -1,0 +1,19 @@
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Metadata Cross-Validation</title>
+<style>
+body{font-family:"Segoe UI",Helvetica,Arial,sans-serif;margin:0;background:#eceef1;color:#1a1a1a}
+.page{max-width:980px;margin:0 auto;background:#fff;padding:32px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{border:1px solid #d9d9d9;padding:6px 10px;text-align:left;vertical-align:top}
+th{background:#f7f8fa}
+.mono{font-family:Consolas,monospace;font-size:13px}
+.badge{display:inline-block;padding:1px 8px;border-radius:3px;font-size:12px;font-weight:600;color:#fff}
+.b-SIGNIFICANT{background:#e74c3c}.b-FLAG{background:#e67e22}
+.b-NOTE{background:#f1c40f;color:#4a3b00}.b-INFO{background:#7f8c8d}
+.meta{color:#555;font-size:13px;margin-bottom:14px}
+</style></head><body><div class="page">
+<h1>Metadata Cross-Validation</h1>
+<div class="meta">File: <span class="mono">1796.mp4</span><br>
+SHA-256: <span class="mono">8560a2d703c1025ba7c5b4deef5e53f89b9ee0c1026cae67b4145e34d137a903</span><br>
+Generated 2026-08-06 19:38:46 UTC</div>
+<table><tr><th>ID</th><th>Severity</th><th>Finding</th><th>Detail</th></tr><tr><td class='mono'>M1</td><td><span class='badge b-NOTE'>NOTE</span></td><td>Zero (epoch) timestamps present</td><td class='mono'>boxes with zero timestamps: ['mvhd', 'tkhd[1]', 'tkhd[2]', 'mdhd[0]', 'mdhd[1]']</td></tr><tr><td class='mono'>M3</td><td><span class='badge b-NOTE'>NOTE</span></td><td>Duration mismatch across boxes</td><td class='mono'>track(tkhd)=12.864s, mvhd=15.669s</td></tr><tr><td class='mono'>M3</td><td><span class='badge b-NOTE'>NOTE</span></td><td>Duration mismatch across boxes</td><td class='mono'>media(mdhd)=12.864s, mvhd=15.669s</td></tr><tr><td class='mono'>M2</td><td><span class='badge b-INFO'>INFO</span></td><td>Video frame rate vs. timescale</td><td class='mono'>timescale=1000, dominant_sample_delta=66, nominal_fps=15.152 avg_fps(samples/duration)=15.062, stts_entry_count=95</td></tr><tr><td class='mono'>M2</td><td><span class='badge b-INFO'>INFO</span></td><td>Timescale inventory</td><td class='mono'>vide track 1: media_ts=1000; soun track 2: media_ts=16000</td></tr><tr><td class='mono'>M4</td><td><span class='badge b-INFO'>INFO</span></td><td>Video codec parameters (hvc1)</td><td class='mono'>codec=hvc1, stsd=1920x1080, tkhd=1920.0x1080.0, depth=24</td></tr><tr><td class='mono'>M4</td><td><span class='badge b-INFO'>INFO</span></td><td>Audio codec parameters (mp4a)</td><td class='mono'>codec=mp4a, channels=1, sample_size=16, sample_rate=16000</td></tr></table></div></body></html>

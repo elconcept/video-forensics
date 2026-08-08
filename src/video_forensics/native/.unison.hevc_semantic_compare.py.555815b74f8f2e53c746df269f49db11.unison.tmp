@@ -1,0 +1,303 @@
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+from pathlib import Path
+from typing import Any
+
+from video_forensics.native.hevc_semantic_fields import (
+    CATEGORIES,
+    base_key,
+    canonicalize,
+    category_coverage,
+)
+
+PARAMETER_SET_TYPES = {32: "vps", 33: "sps", 34: "pps"}
+SLICE_TYPES = set(range(32))
+FFMPEG_FIELD = re.compile(
+    r"(?:^|\s)(?P<name>[A-Za-z_][A-Za-z0-9_\[\]]*)\s+"
+    r"(?P<bits>[01]+)\s*=\s*(?P<value>-?\d+)\s*$"
+)
+
+
+def read_object(path: Path) -> dict[str, Any]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise TypeError(f"expected JSON object: {path}")
+    return value
+
+
+def flatten(value: Any, prefix: str = "") -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    if isinstance(value, dict):
+        for key, child in value.items():
+            name = f"{prefix}.{key}" if prefix else str(key)
+            result.update(flatten(child, name))
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            result.update(flatten(child, f"{prefix}[{index}]"))
+    else:
+        result[prefix] = value
+    return result
+
+
+def payload_object(nal: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
+    nal_type = nal.get("nal_unit_type")
+    payload = nal.get("payload")
+    if not isinstance(payload, dict):
+        return None
+    if nal_type in PARAMETER_SET_TYPES:
+        name = PARAMETER_SET_TYPES[int(nal_type)]
+        value = payload.get(name)
+        return (name, value) if isinstance(value, dict) else None
+    if nal_type in SLICE_TYPES:
+        value = payload.get("slice_segment_layer") or payload.get("slice")
+        return ("slice", value) if isinstance(value, dict) else None
+    return None
+
+
+def h265nal_records(primary: dict[str, Any]) -> list[dict[str, Any]]:
+    nals = primary.get("nal_units")
+    if not isinstance(nals, list):
+        raise TypeError("primary result has no nal_units list")
+    records: list[dict[str, Any]] = []
+    for nal in nals:
+        if not isinstance(nal, dict):
+            continue
+        parsed = payload_object(nal)
+        if parsed is None:
+            continue
+        kind, value = parsed
+        records.append(
+            {
+                "nal_number": nal.get("nal_number"),
+                "nal_unit_type": nal.get("nal_unit_type"),
+                "kind": kind,
+                "fields": canonicalize(flatten(value)),
+            }
+        )
+    return records
+
+
+def legacy_records(legacy: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates = legacy.get("records")
+    if isinstance(candidates, list):
+        return [item for item in candidates if isinstance(item, dict)]
+    records: list[dict[str, Any]] = []
+    for key, kind in (("sps", "sps"), ("pps", "pps"), ("slices", "slice")):
+        values = legacy.get(key)
+        if not isinstance(values, list):
+            continue
+        for index, value in enumerate(values, start=1):
+            if isinstance(value, dict):
+                records.append(
+                    {
+                        "nal_number": value.get("nal_number", index),
+                        "nal_unit_type": value.get("nal_unit_type"),
+                        "kind": kind,
+                        "fields": canonicalize(flatten(value.get("fields", value))),
+                    }
+                )
+    return records
+
+
+def parse_ffmpeg_trace(text: str) -> dict[str, list[int]]:
+    fields: dict[str, list[int]] = {}
+    for line in text.splitlines():
+        match = FFMPEG_FIELD.search(line.strip())
+        if match is None:
+            continue
+        fields.setdefault(match.group("name"), []).append(int(match.group("value")))
+    return fields
+
+
+def record_key(record: dict[str, Any]) -> tuple[int, str]:
+    number = record.get("nal_number")
+    if not isinstance(number, int):
+        raise TypeError("semantic record has no integer nal_number")
+    return number, str(record.get("kind", ""))
+
+
+def compare_fields(
+    primary: list[dict[str, Any]], legacy: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    primary_map = {record_key(item): item for item in primary}
+    legacy_map = {record_key(item): item for item in legacy}
+    comparisons: list[dict[str, Any]] = []
+    for key in sorted(set(primary_map) | set(legacy_map)):
+        left = primary_map.get(key)
+        right = legacy_map.get(key)
+        nal_number, kind = key
+        if left is None:
+            comparisons.append(
+                {
+                    "nal_number": nal_number,
+                    "kind": kind,
+                    "status": "missing_primary_record",
+                    "shared_field_count": 0,
+                    "mismatch_count": 0,
+                    "mismatches": [],
+                }
+            )
+            continue
+        if right is None:
+            comparisons.append(
+                {
+                    "nal_number": nal_number,
+                    "kind": kind,
+                    "status": "missing_legacy_record",
+                    "shared_field_count": 0,
+                    "mismatch_count": 0,
+                    "mismatches": [],
+                }
+            )
+            continue
+        left_fields = left.get("fields", {})
+        right_fields = right.get("fields", {})
+        shared = sorted(set(left_fields) & set(right_fields))
+        mismatches = [
+            {
+                "field": field,
+                "primary": left_fields[field],
+                "legacy": right_fields[field],
+            }
+            for field in shared
+            if left_fields[field] != right_fields[field]
+        ]
+        comparisons.append(
+            {
+                "nal_number": nal_number,
+                "kind": kind,
+                "shared_fields": shared,
+                "shared_field_count": len(shared),
+                "mismatch_count": len(mismatches),
+                "mismatches": mismatches,
+                "status": "match" if shared and not mismatches else "mismatch",
+            }
+        )
+    return comparisons
+
+
+def compare(
+    primary: dict[str, Any],
+    legacy: dict[str, Any] | None,
+    ffmpeg_trace: str | None,
+) -> dict[str, Any]:
+    primary_items = h265nal_records(primary)
+    legacy_items = legacy_records(legacy) if legacy is not None else []
+    record_comparisons = (
+        compare_fields(primary_items, legacy_items) if legacy is not None else []
+    )
+    ffmpeg_fields = parse_ffmpeg_trace(ffmpeg_trace or "")
+    mismatch_count = sum(
+        int(item.get("mismatch_count", 0)) for item in record_comparisons
+    )
+    comparable_count = sum(
+        item.get("shared_field_count", 0) > 0 for item in record_comparisons
+    )
+    shared_keys = {
+        field
+        for item in record_comparisons
+        for mismatch in item.get("mismatches", [])
+        for field in [mismatch["field"]]
+    }
+    for item in record_comparisons:
+        shared_keys.update(item.get("shared_fields", []))
+    coverage = category_coverage(shared_keys)
+    legacy_agreement = (
+        legacy is not None
+        and comparable_count > 0
+        and mismatch_count == 0
+        and not any(
+            item["status"] in {"missing_primary_record", "missing_legacy_record"}
+            for item in record_comparisons
+            if item["kind"] != "vps"
+        )
+    )
+    ffmpeg_control_available = bool(ffmpeg_fields)
+    rps_bases = CATEGORIES["short_term_rps"] | CATEGORIES["long_term_rps"]
+    primary_rps_keys = {
+        key
+        for item in primary_items
+        for key in item.get("fields", {})
+        if base_key(key) in rps_bases
+    }
+    legacy_rps_keys = {
+        key
+        for item in legacy_items
+        for key in item.get("fields", {})
+        if base_key(key) in rps_bases
+    }
+    applicable_rps_keys = primary_rps_keys | legacy_rps_keys
+    shared_rps_keys = primary_rps_keys & legacy_rps_keys
+    missing_primary_rps = sorted(legacy_rps_keys - primary_rps_keys)
+    missing_legacy_rps = sorted(primary_rps_keys - legacy_rps_keys)
+    rps_comparison_complete = (
+        bool(applicable_rps_keys)
+        and not missing_primary_rps
+        and not missing_legacy_rps
+    )
+
+    return {
+        "schema_version": 1,
+        "module": "hevc_semantic_compare",
+        "primary_backend": "h265nal",
+        "legacy_backend_role": "comparison_only",
+        "control_backend": "ffmpeg_trace_headers",
+        "primary_record_count": len(primary_items),
+        "legacy_record_count": len(legacy_items),
+        "comparable_record_count": comparable_count,
+        "field_mismatch_count": mismatch_count,
+        "legacy_semantic_agreement": legacy_agreement,
+        "canonical_field_coverage": coverage,
+        "rps_comparison_complete": rps_comparison_complete,
+        "rps_applicability": {
+            "applicable_field_count": len(applicable_rps_keys),
+            "shared_field_count": len(shared_rps_keys),
+            "applicable_fields": sorted(applicable_rps_keys),
+            "missing_in_primary": missing_primary_rps,
+            "missing_in_legacy": missing_legacy_rps,
+            "rule": (
+                "Complete means every RPS field applicable to this stream is "
+                "present in both backends. Conditionally absent syntax is not required."
+            ),
+        },
+        "ffmpeg_control_available": ffmpeg_control_available,
+        "authoritative_for_high_weight": ffmpeg_control_available,
+        "records": record_comparisons,
+        "ffmpeg_fields": ffmpeg_fields,
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="video-forensics-hevc-semantic-compare")
+    parser.add_argument("primary_json", type=Path)
+    parser.add_argument("--legacy-json", type=Path)
+    parser.add_argument("--ffmpeg-trace", type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    args = parser.parse_args()
+    try:
+        primary = read_object(args.primary_json)
+        legacy = read_object(args.legacy_json) if args.legacy_json else None
+        trace = (
+            args.ffmpeg_trace.read_text(encoding="utf-8", errors="replace")
+            if args.ffmpeg_trace
+            else None
+        )
+        result = compare(primary, legacy, trace)
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(
+            json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

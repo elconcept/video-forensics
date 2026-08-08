@@ -1,0 +1,27 @@
+from __future__ import annotations
+
+import numpy as np
+
+from video_forensics.native.static_region_motion import analyze_pair, connected_regions
+
+
+def test_connected_regions_finds_large_component() -> None:
+    mask = np.zeros((6, 6), dtype=bool)
+    mask[1:4, 2:5] = True
+    regions = connected_regions(mask, minimum_pixels=4)
+    assert regions == [{"pixel_count": 9, "x": 2, "y": 1, "width": 3, "height": 3}]
+
+
+def test_pair_flags_static_region_during_global_change() -> None:
+    previous = np.zeros((10, 10), dtype=np.uint8)
+    current = np.full((10, 10), 20, dtype=np.uint8)
+    current[2:6, 3:7] = 0
+    result = analyze_pair(
+        previous,
+        current,
+        minimum_pixels=10,
+        global_motion_threshold=2.0,
+    )
+    assert result["global_motion_present"] is True
+    assert result["candidate"] is True
+    assert result["regions"][0]["pixel_count"] == 16

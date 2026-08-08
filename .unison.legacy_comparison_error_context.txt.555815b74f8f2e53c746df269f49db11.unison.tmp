@@ -1,0 +1,57 @@
+FILE: /home/tom/projects/video-forensics/diagnose_legacy_comparison_error.py
+LINE: 5
+        1: from __future__ import annotations
+        2: 
+        3: from pathlib import Path
+        4: 
+>>>     5: MESSAGE = "comparison was produced without legacy backend"
+        6: ROOT = Path.cwd()
+        7: SKIP = {".git", ".venv", "build", "dist", "work", "__pycache__"}
+        8: 
+        9: matches: list[tuple[Path, int, list[str]]] = []
+       10: for path in ROOT.rglob("*.py"):
+       11:     if any(part in SKIP for part in path.relative_to(ROOT).parts):
+       12:         continue
+       13:     try:
+       14:         lines = path.read_text(encoding="utf-8").splitlines()
+       15:     except UnicodeDecodeError:
+       16:         continue
+       17:     for index, line in enumerate(lines):
+       18:         if MESSAGE in line:
+       19:             start = max(0, index - 15)
+       20:             end = min(len(lines), index + 16)
+
+FILE: /home/tom/projects/video-forensics/src/video_forensics/native/hevc_reference_enroll.py
+LINE: 37
+       22:         raise TypeError(f"expected JSON object: {path}")
+       23:     return value
+       24: 
+       25: 
+       26: def validate_comparison(path: Path) -> dict[str, Any]:
+       27:     comparison = read_object(path)
+       28:     acceptance = comparison.get("migration_acceptance")
+       29:     semantic = comparison.get("semantic")
+       30:     if not isinstance(acceptance, dict):
+       31:         raise TypeError("comparison has no migration_acceptance object")
+       32:     if not isinstance(semantic, dict):
+       33:         raise TypeError("comparison has no semantic object")
+       34:     if not acceptance.get("ffmpeg_control_passed"):
+       35:         raise ValueError("FFmpeg control did not pass")
+       36:     if not acceptance.get("legacy_comparison_requested"):
+>>>    37:         raise ValueError("comparison was produced without legacy backend")
+       38:     return comparison
+       39: 
+       40: 
+       41: def relative_or_absolute(path: Path, base: Path) -> str:
+       42:     try:
+       43:         return str(path.relative_to(base))
+       44:     except ValueError:
+       45:         return str(path)
+       46: 
+       47: 
+       48: def enroll(
+       49:     config: Path,
+       50:     *,
+       51:     case_id: str,
+       52:     source: Path,
+

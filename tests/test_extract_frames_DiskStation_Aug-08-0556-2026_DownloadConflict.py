@@ -1,0 +1,39 @@
+from __future__ import annotations
+
+import hashlib
+from pathlib import Path
+
+import pytest
+
+from video_forensics.tools.extract_frames import (
+    _codec_arguments,
+    _frame_index,
+    _parse_ranges,
+    _selection_expression,
+)
+
+
+def test_parse_ranges() -> None:
+    assert _parse_ranges("1,3-5,10") == [(1, 1), (3, 5), (10, 10)]
+    assert _selection_expression([(1, 1), (3, 5)]) == "between(n,0,0)+between(n,2,4)"
+
+
+def test_rejects_invalid_range() -> None:
+    with pytest.raises(ValueError, match="invalid frame range"):
+        _parse_ranges("5-3")
+
+
+def test_codec_arguments() -> None:
+    extension, arguments = _codec_arguments("png")
+    assert extension == "png"
+    assert arguments[:2] == ["-c:v", "png"]
+
+
+def test_frame_index_hashes_outputs(tmp_path: Path) -> None:
+    frames = tmp_path / "extracted_frames" / "frames"
+    frames.mkdir(parents=True)
+    content = b"frame-data"
+    (frames / "frame_000000001.png").write_bytes(content)
+    rows = _frame_index(tmp_path)
+    assert rows[0]["sha256"] == hashlib.sha256(content).hexdigest()
+    assert rows[0]["size_bytes"] == len(content)

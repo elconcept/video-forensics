@@ -1,0 +1,45 @@
+from __future__ import annotations
+
+from video_forensics.tools.reference_compare import (
+    _compare_container,
+    _compare_gop,
+    _compare_metadata,
+    _summary,
+)
+
+
+def test_compares_video_metadata() -> None:
+    questioned = {
+        "streams": [{"codec_type": "video", "codec_name": "h264", "width": 1920}],
+        "format": {"format_name": "mov,mp4"},
+    }
+    reference = {
+        "streams": [{"codec_type": "video", "codec_name": "h264", "width": 1280}],
+        "format": {"format_name": "mov,mp4"},
+    }
+    rows = _compare_metadata(questioned, reference)
+    width = next(row for row in rows if row["field"] == "width")
+    codec = next(row for row in rows if row["field"] == "codec_name")
+    assert width["status"] == "difference"
+    assert codec["status"] == "match"
+
+
+def test_compares_container_and_gop_summaries() -> None:
+    container_rows = _compare_container(
+        {"summary": {"top_level_order": ["ftyp", "moov"], "type_counts": {"moov": 1}}},
+        {"summary": {"top_level_order": ["ftyp", "mdat"], "type_counts": {"moov": 1}}},
+    )
+    gop_rows = _compare_gop(
+        {"summary": {"gop_length_min": 30, "gop_length_max": 30}},
+        {"summary": {"gop_length_min": 30, "gop_length_max": 60}},
+    )
+    assert container_rows[0]["status"] == "difference"
+    assert any(row["status"] == "difference" for row in gop_rows)
+
+
+def test_summary_counts_matches_and_differences() -> None:
+    assert _summary([{"status": "match"}, {"status": "difference"}]) == {
+        "comparison_count": 2,
+        "match_count": 1,
+        "difference_count": 1,
+    }

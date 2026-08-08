@@ -1,0 +1,65 @@
+from __future__ import annotations
+
+from video_forensics.tools.hevc_poc import PPS, SPS
+from video_forensics.tools.hevc_slice_segments import (
+    SliceSegmentHeader,
+    parse_slice_segment_header,
+)
+
+
+def bits_to_bytes(bits: str) -> bytes:
+    padded = bits + "0" * ((8 - len(bits) % 8) % 8)
+    return bytes(int(padded[index : index + 8], 2) for index in range(0, len(padded), 8))
+
+
+
+def test_dependent_segment_inherits_independent_fields() -> None:
+    sps = SPS(0, 128, 64, 8, 0, 6)
+    pps = PPS(0, 0, 1, 0, 0)
+    preceding = SliceSegmentHeader(
+        nal_number=10,
+        nal_unit_type=1,
+        first_slice_segment_in_pic_flag=1,
+        no_output_of_prior_pics_flag=None,
+        pps_id=0,
+        dependent_slice_segment_flag=0,
+        slice_segment_address=0,
+        slice_segment_ctb_x=0,
+        slice_segment_ctb_y=0,
+        pic_width_in_ctbs_y=2,
+        pic_height_in_ctbs_y=1,
+        pic_size_in_ctbs_y=2,
+        slice_segment_address_bit_count=1,
+        inherited_from_nal_number=None,
+        slice_type=1,
+        pic_output_flag=1,
+        colour_plane_id=0,
+        poc_lsb=7,
+        header_bits_consumed=8,
+        header_bytes_covered=1,
+        short_term_ref_pic_set_sps_flag=None,
+        short_term_ref_pic_set_idx=None,
+        short_term_rps=None,
+        long_term_rps=None,
+        parser_status="independent_header_core_complete",
+    )
+    # first=0, pps_id ue(0)=1, dependent=1, address=01 for 2 CTBs
+    payload = b"\x02\x01" + bits_to_bytes("0111")
+    parsed = parse_slice_segment_header(payload, 1, 11, {0: pps}, {0: sps}, preceding)
+    assert parsed.dependent_slice_segment_flag == 1
+    assert parsed.slice_segment_address == 1
+    assert parsed.slice_type == 1
+    assert parsed.poc_lsb == 7
+    assert parsed.inherited_from_nal_number == 10
+
+
+def test_independent_nonfirst_segment_parses_own_core_header() -> None:
+    sps = SPS(0, 128, 64, 8, 0, 6)
+    pps = PPS(0, 0, 1, 0, 0)
+    # first=0, pps_id ue(0)=1, dependent=0, address=01, slice_type ue(1)=010, poc_lsb=7, short_term_ref_pic_set_sps_flag=1
+    payload = b"\x02\x01" + bits_to_bytes("0101010000001111")
+    parsed = parse_slice_segment_header(payload, 1, 12, {0: pps}, {0: sps}, None)
+    assert parsed.dependent_slice_segment_flag == 0
+    assert parsed.slice_segment_address == 1
+    assert parsed.slice_type == 1
+    assert parsed.poc_lsb == 7

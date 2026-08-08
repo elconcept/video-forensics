@@ -1,0 +1,176 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from time import monotonic
+from typing import Any
+
+from video_forensics.manifest import atomic_write_json, utc_now
+
+METADATA_FIELDS = (
+    "codec_name",
+    "codec_long_name",
+    "profile",
+    "codec_type",
+    "width",
+    "height",
+    "pix_fmt",
+    "level",
+    "color_range",
+    "color_space",
+    "color_transfer",
+    "color_primaries",
+    "field_order",
+    "r_frame_rate",
+    "avg_frame_rate",
+    "time_base",
+)
+FORMAT_FIELDS = (
+    "format_name",
+    "format_long_name",
+)
+
+
+def _read_json(path: Path) -> Any:
+    if not path.is_file():
+        raise FileNotFoundError(f"required analysis output not found: {path}")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _first_video_stream(payload: dict[str, Any]) -> dict[str, Any]:
+    for stream in payload.get("streams", []):
+        if stream.get("codec_type") == "video":
+            return stream
+    return {}
+
+
+def _compare_mapping(
+    questioned: dict[str, Any],
+    reference: dict[str, Any],
+    fields: tuple[str, ...],
+    category: str,
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for field in fields:
+        left = questioned.get(field)
+        right = reference.get(field)
+        rows.append(
+            {
+                "category": category,
+                "field": field,
+                "questioned": left,
+                "reference": right,
+                "status": "match" if left == right else "difference",
+            }
+        )
+    return rows
+
+
+def _compare_metadata(
+    questioned: dict[str, Any], reference: dict[str, Any]
+) -> list[dict[str, object]]:
+    rows = _compare_mapping(
+        _first_video_stream(questioned),
+        _first_video_stream(reference),
+        METADATA_FIELDS,
+        "video_stream",
+    )
+    rows.extend(
+        _compare_mapping(
+            questioned.get("format", {}),
+            reference.get("format", {}),
+            FORMAT_FIELDS,
+            "format",
+        )
+    )
+    return rows
+
+
+def _compare_container(
+    questioned: dict[str, Any], reference: dict[str, Any]
+) -> list[dict[str, object]]:
+    questioned_summary = questioned.get("summary", {})
+    reference_summary = reference.get("summary", {})
+    fields = ("top_level_order", "type_counts")
+    return _compare_mapping(
+        questioned_summary,
+        reference_summary,
+        fields,
+        "container_structure",
+    )
+
+
+def _compare_gop(
+    questioned: dict[str, Any], reference: dict[str, Any]
+) -> list[dict[str, object]]:
+    questioned_summary = questioned.get("summary", {})
+    reference_summary = reference.get("summary", {})
+    fields = (
+        "picture_type_counts",
+        "gop_length_min",
+        "gop_length_max",
+        "distinct_gop_lengths",
+    )
+    return _compare_mapping(questioned_summary, reference_summary, fields, "gop")
+
+
+def _summary(rows: list[dict[str, object]]) -> dict[str, object]:
+    matches = sum(row["status"] == "match" for row in rows)
+    differences = len(rows) - matches
+    return {
+        "comparison_count": len(rows),
+        "match_count": matches,
+        "difference_count": differences,
+    }
+
+
+def analyze(
+    video: Path,
+    output_dir: Path,
+    *,
+    reference_output: Path | None = None,
+) -> dict[str, object]:
+    video = video.resolve(strict=True)
+    if not video.is_file():
+        raise ValueError(f"input is not a regular file: {video}")
+    if reference_output is None:
+        raise ValueError("reference_output is required for reference comparison")
+    reference_output = reference_output.expanduser().resolve(strict=True)
+    if not reference_output.is_dir():
+        raise ValueError(f"reference output is not a directory: {reference_output}")
+
+    started = monotonic()
+    questioned_metadata = _read_json(output_dir / "metadata" / "raw" / "ffprobe.json")
+    reference_metadata = _read_json(reference_output / "metadata" / "raw" / "ffprobe.json")
+    questioned_container = _read_json(output_dir / "container" / "structure.json")
+    reference_container = _read_json(reference_output / "container" / "structure.json")
+    questioned_gop = _read_json(output_dir / "gop" / "gop.json")
+    reference_gop = _read_json(reference_output / "gop" / "gop.json")
+
+    comparisons = [
+        *_compare_metadata(questioned_metadata, reference_metadata),
+        *_compare_container(questioned_container, reference_container),
+        *_compare_gop(questioned_gop, reference_gop),
+    ]
+    differences = [row for row in comparisons if row["status"] == "difference"]
+
+    atomic_write_json(output_dir / "reference_compare" / "comparisons.json", comparisons)
+    atomic_write_json(output_dir / "reference_compare" / "differences.json", differences)
+    result: dict[str, object] = {
+        "schema_version": 1,
+        "stage": "reference_compare",
+        "completed_at_utc": utc_now(),
+        "duration_seconds": round(monotonic() - started, 6),
+        "reference_output": str(reference_output),
+        "scope": {
+            "supported": "comparison of selected metadata, container, and GOP attributes",
+            "not_supported": "device identification, PRNU matching, or proof of common origin",
+        },
+        "summary": _summary(comparisons),
+        "outputs": {
+            "comparisons": "reference_compare/comparisons.json",
+            "differences": "reference_compare/differences.json",
+        },
+    }
+    atomic_write_json(output_dir / "reference_compare" / "reference_compare.json", result)
+    return result

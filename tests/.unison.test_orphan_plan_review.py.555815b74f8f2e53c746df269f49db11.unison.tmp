@@ -1,0 +1,71 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from video_forensics.native.orphan_plan_review import approve_plan, verify_approved_plan
+
+
+def nal(nal_type: int, payload: bytes) -> bytes:
+    return b"\x00\x00\x00\x01" + bytes(((nal_type << 1) & 0x7E, 1)) + payload
+
+
+def make_stream(tmp_path: Path) -> tuple[Path, Path]:
+    stream = tmp_path / "source.h265"
+    stream.write_bytes(
+        nal(32, b"vps")
+        + nal(33, b"sps")
+        + nal(34, b"pps")
+        + nal(19, b"idr")
+        + nal(1, b"tail")
+    )
+    draft = tmp_path / "draft.json"
+    draft.write_text(
+        json.dumps(
+            {
+                "status": "draft_requires_review",
+                "parameter_nals": [1, 2, 3],
+                "reference_idr_nals": [4],
+                "orphan_start_nal": 5,
+                "orphan_end_nal": 5,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return stream, draft
+
+
+def test_approval_binds_plan_to_source_hash(tmp_path: Path) -> None:
+    stream, draft = make_stream(tmp_path)
+    approved = approve_plan(
+        stream,
+        draft,
+        tmp_path / "approved.json",
+        reviewer="T. K.",
+        rationale="NAL selections checked against index",
+    )
+    verify_approved_plan(stream, approved)
+    assert approved["status"] == "approved_for_controlled_reconstruction"
+
+
+def test_rejects_approved_plan_for_different_source(tmp_path: Path) -> None:
+    stream, draft = make_stream(tmp_path)
+    approved = approve_plan(
+        stream,
+        draft,
+        tmp_path / "approved.json",
+        reviewer="T. K.",
+        rationale="checked",
+    )
+    other = tmp_path / "other.h265"
+    other.write_bytes(stream.read_bytes() + b"x")
+    with pytest.raises(ValueError, match="SHA-256"):
+        verify_approved_plan(other, approved)
+
+
+def test_rejects_unapproved_draft(tmp_path: Path) -> None:
+    stream, draft = make_stream(tmp_path)
+    with pytest.raises(ValueError, match="not approved"):
+        verify_approved_plan(stream, json.loads(draft.read_text()))

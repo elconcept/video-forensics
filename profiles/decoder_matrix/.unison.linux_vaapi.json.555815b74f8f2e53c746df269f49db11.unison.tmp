@@ -1,0 +1,16 @@
+{
+  "profile_id": "linux_vaapi",
+  "description": "Linux FFmpeg HEVC decode through VAAPI",
+  "ffmpeg_args": [
+    "-hwaccel",
+    "vaapi",
+    "-hwaccel_output_format",
+    "vaapi"
+  ],
+  "requires": {
+    "hwaccel": "vaapi",
+    "device": [
+      "vainfo"
+    ]
+  }
+}

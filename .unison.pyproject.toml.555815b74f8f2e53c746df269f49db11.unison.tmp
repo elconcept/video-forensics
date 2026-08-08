@@ -1,0 +1,67 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "video-forensics"
+version = "0.1.0"
+description = "Containerized forensic video examination toolkit"
+requires-python = ">=3.12"
+dependencies = [
+  "numpy>=2.0,<3",
+  "Pillow>=12,<13",
+]
+
+[project.optional-dependencies]
+dev = [
+  "build>=1,<2",
+  "pytest>=8,<9",
+  "ruff>=0.12,<1",
+  "mypy>=1.17,<2",
+]
+
+[project.scripts]
+video-forensics-hevc-reference-run = "video_forensics.native.hevc_reference_run:main"
+video-forensics-hevc-legacy-discovery = "video_forensics.native.hevc_legacy_discovery:main"
+video-forensics-hevc-reference-enroll = "video_forensics.native.hevc_reference_enroll:main"
+video-forensics-hevc-migration-regression = "video_forensics.native.hevc_migration_regression:main"
+video-forensics-hevc-reference-compare = "video_forensics.native.hevc_reference_compare:main"
+video-forensics-hevc-semantic-compare = "video_forensics.native.hevc_semantic_compare:main"
+video-forensics-hevc-migration-stage = "video_forensics.native.hevc_migration_stage:main"
+video-forensics-hevc-parser-authority = "video_forensics.native.hevc_parser_authority:main"
+video-forensics-normalize-h265nal = "video_forensics.native.h265nal_normalizer:main"
+video-forensics-hevc-migration-gate = "video_forensics.native.hevc_parser_migration_gate:main"
+video-forensics-hevc-syntax = "video_forensics.native.h265nal_pipeline:main"
+video-forensics-h265nal = "video_forensics.native.h265nal_adapter:main"
+video-forensics-orphan-numeric-arrays = "video_forensics.native.orphan_numeric_arrays:main"
+video-forensics-cross-run-compare = "video_forensics.native.cross_run_compare:main"
+video-forensics-orphan-independent-run = "video_forensics.native.orphan_independent_run:main"
+video-forensics-decode-orphan-libde265 = "video_forensics.native.decode_orphan_libde265:main"
+video-forensics-result-summary = "video_forensics.native.result_summary:main"
+video-forensics-review-orphan-plan = "video_forensics.native.orphan_plan_review:main"
+video-forensics-submission-bundle = "video_forensics.native.submission_bundle:main"
+video-forensics-decoder-frame-timestamps = "video_forensics.native.decoder_frame_timestamps:main"
+video-forensics-osd-timeline = "video_forensics.native.osd_timeline:main"
+video-forensics = "video_forensics.cli:main"
+video-forensics-host-profile = "video_forensics.native.host_profile:main"
+video-forensics-orphan-recovery = "video_forensics.native.orphan_recovery:main"
+video-forensics-build-orphan-streams = "video_forensics.native.orphan_stream_builder:main"
+video-forensics-export-visual-frames = "video_forensics.native.visual_frame_export:main"
+video-forensics-decode-orphan-variants = "video_forensics.native.decode_orphan_variants:main"
+video-forensics-verify-orphan-decoders = "video_forensics.native.verify_orphan_decoders:main"
+video-forensics-orphan-recovery-report = "video_forensics.native.orphan_recovery_report:main"
+video-forensics-audio-samples = "video_forensics.native.audio_samples:main"
+video-forensics-run-matrix = "video_forensics.native.run_matrix:main"
+video-forensics-libde265-run = "video_forensics.native.libde265_run:main"
+video-forensics-orphan-pipeline = "video_forensics.native.orphan_pipeline:main"
+video-forensics-playback-divergence = "video_forensics.native.playback_divergence:main"
+video-forensics-static-region-motion = "video_forensics.native.static_region_motion:main"
+video-forensics-osd-reader = "video_forensics.native.osd_reader:main"
+video-forensics-osd-glyph-metrics = "video_forensics.native.osd_glyph_metrics:main"
+video-forensics-decoder-matrix-report = "video_forensics.native.decoder_matrix_report:main"
+video-forensics-static-region-series = "video_forensics.native.static_region_series:main"
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100

@@ -1,0 +1,141 @@
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import sys
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(8 * 1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def read_json(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise TypeError(f"expected JSON object: {path}")
+    return payload
+
+
+def approve_plan(
+    annex_b: Path,
+    draft_path: Path,
+    output: Path,
+    *,
+    reviewer: str,
+    rationale: str,
+) -> dict[str, object]:
+    if not reviewer.strip():
+        raise ValueError("reviewer must not be empty")
+    if not rationale.strip():
+        raise ValueError("review rationale must not be empty")
+    annex_b = annex_b.expanduser().resolve(strict=True)
+    draft_path = draft_path.expanduser().resolve(strict=True)
+    output = output.expanduser().resolve()
+    if output.exists():
+        raise FileExistsError(f"approved plan already exists: {output}")
+
+    from video_forensics.native.orphan_stream_builder import parse_nal_units, validate_plan
+
+    draft = read_json(draft_path)
+    if draft.get("status") not in (None, "draft_requires_review"):
+        raise ValueError(f"unexpected draft status: {draft.get('status')}")
+    rows = parse_nal_units(annex_b)
+    validated = validate_plan(rows, draft)
+    source_hash = sha256(annex_b)
+
+    approved: dict[str, object] = {
+        "schema_version": 1,
+        "status": "approved_for_controlled_reconstruction",
+        "parameter_nals": [
+            int(row["nal_number"]) for row in validated["parameter_rows"]
+        ],
+        "reference_idr_nals": [
+            int(row["nal_number"]) for row in validated["reference_rows"]
+        ],
+        "orphan_start_nal": int(validated["orphan_start"]),
+        "orphan_end_nal": int(validated["orphan_end"]),
+        "source": {
+            "path": str(annex_b),
+            "size_bytes": annex_b.stat().st_size,
+            "sha256": source_hash,
+        },
+        "review": {
+            "reviewer": reviewer.strip(),
+            "reviewed_at_utc": datetime.now(UTC).isoformat(),
+            "rationale": rationale.strip(),
+            "draft_path": str(draft_path),
+            "draft_sha256": sha256(draft_path),
+            "checks": [
+                "selected parameter NALs are VPS/SPS/PPS",
+                "selected references are IDR NALs",
+                "orphan range contains only VCL NALs",
+                "NAL numbers resolve in the bound Annex B stream",
+            ],
+        },
+        "interpretation_boundary": (
+            "Approval confirms the selected byte ranges and NAL types for a controlled experiment. "
+            "It does not prove that a selected IDR is the historically removed reference picture."
+        ),
+    }
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        json.dumps(approved, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return approved
+
+
+def verify_approved_plan(annex_b: Path, plan: dict[str, Any]) -> None:
+    if plan.get("status") != "approved_for_controlled_reconstruction":
+        raise ValueError(
+            "orphan plan is not approved_for_controlled_reconstruction"
+        )
+    source = plan.get("source")
+    if not isinstance(source, dict) or not source.get("sha256"):
+        raise ValueError("approved orphan plan has no bound source SHA-256")
+    actual = sha256(annex_b)
+    if str(source["sha256"]).lower() != actual:
+        raise ValueError("approved orphan plan source SHA-256 does not match Annex B input")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="video-forensics-review-orphan-plan")
+    parser.add_argument("annex_b", type=Path)
+    parser.add_argument("--draft", required=True, type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--reviewer", required=True)
+    parser.add_argument("--rationale", required=True)
+    args = parser.parse_args()
+    try:
+        result = approve_plan(
+            args.annex_b,
+            args.draft,
+            args.output,
+            reviewer=args.reviewer,
+            rationale=args.rationale,
+        )
+    except (FileNotFoundError, FileExistsError, KeyError, TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    print(
+        json.dumps(
+            {
+                "status": result["status"],
+                "source_sha256": result["source"]["sha256"],
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,14 @@
+from pathlib import Path
+
+from video_forensics.native.decoder_matrix import load_profile
+
+
+def test_load_profile(tmp_path: Path) -> None:
+    path = tmp_path / "profile.json"
+    path.write_text(
+        '{"profile_id":"test","description":"Test","ffmpeg_args":["-threads","1"]}',
+        encoding="utf-8",
+    )
+    profile = load_profile(path)
+    assert profile.profile_id == "test"
+    assert profile.ffmpeg_args == ["-threads", "1"]

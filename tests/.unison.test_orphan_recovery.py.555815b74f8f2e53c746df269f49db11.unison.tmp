@@ -1,0 +1,45 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import numpy as np
+from PIL import Image
+
+from video_forensics.native.orphan_recovery import recover_frame, run_recovery
+
+
+def write_frame(path: Path, array: np.ndarray) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(array.astype(np.uint8), mode="RGB").save(path)
+
+
+def test_recover_frame_marks_invariant_pixels() -> None:
+    first = np.zeros((2, 2, 3), dtype=np.uint8)
+    second = first.copy()
+    second[0, 0] = [100, 100, 100]
+    arrays = []
+    for index, frame in enumerate((first, second)):
+        path = Path(f"/tmp/orphan-recovery-{index}.png")
+        write_frame(path, frame)
+        arrays.append(path)
+    try:
+        _, overlay, metrics = recover_frame(arrays, sigma_threshold=8.0)
+        assert metrics["determined_pixel_fraction"] == 0.75
+        assert overlay[0, 0].tolist() == [0, 255, 0]
+    finally:
+        for path in arrays:
+            path.unlink(missing_ok=True)
+
+
+def test_run_recovery_writes_manifest_and_stability(tmp_path: Path) -> None:
+    variants = tmp_path / "variants"
+    frame = np.full((3, 4, 3), 50, dtype=np.uint8)
+    write_frame(variants / "ref_a" / "frame_001.png", frame)
+    write_frame(variants / "ref_b" / "frame_001.png", frame)
+
+    result = run_recovery(variants, tmp_path / "output")
+
+    assert result["variant_count"] == 2
+    assert result["frames"][0]["determined_pixel_fraction"] == 1.0
+    assert (tmp_path / "output" / "orphan_recovery.json").is_file()
+    assert (tmp_path / "output" / "stability.csv").is_file()

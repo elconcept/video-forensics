@@ -1,0 +1,109 @@
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+PRIMARY_MARKERS = {"primary_backend", "h265nal_normalized", "parser_authority"}
+NAL_KEYS = ("nal_units", "nals")
+SEMANTIC_KEYS = ("sps", "pps", "slices", "records")
+
+
+def read_object(path: Path) -> dict[str, Any] | None:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def score(path: Path, payload: dict[str, Any]) -> tuple[int, list[str]]:
+    reasons: list[str] = []
+    points = 0
+    module = str(payload.get("module", "")).lower()
+    backend = str(payload.get("backend", "")).lower()
+    if backend == "h265nal" or payload.get("primary_backend") == "h265nal":
+        return -1000, ["primary h265nal result"]
+    if any(marker in module for marker in PRIMARY_MARKERS):
+        return -1000, ["migration-stage result"]
+    if "legacy" in module or backend == "legacy":
+        points += 40
+        reasons.append("explicit legacy marker")
+    if any(isinstance(payload.get(key), list) for key in NAL_KEYS):
+        points += 30
+        reasons.append("NAL list")
+    semantic_count = sum(isinstance(payload.get(key), list) for key in SEMANTIC_KEYS)
+    if semantic_count:
+        points += 10 * semantic_count
+        reasons.append(f"semantic collections={semantic_count}")
+    if "hevc" in path.name.lower() or "bitstream" in path.name.lower():
+        points += 5
+        reasons.append("HEVC/bitstream filename")
+    return points, reasons
+
+
+def discover(run_root: Path) -> dict[str, Any]:
+    run_root = run_root.expanduser().resolve(strict=True)
+    candidates: list[dict[str, Any]] = []
+    for path in sorted(run_root.rglob("*.json")):
+        if "hevc_parser_migration" in path.parts:
+            continue
+        payload = read_object(path)
+        if payload is None:
+            continue
+        points, reasons = score(path, payload)
+        if points <= 0:
+            continue
+        candidates.append(
+            {
+                "path": str(path),
+                "relative_path": str(path.relative_to(run_root)),
+                "score": points,
+                "reasons": reasons,
+            }
+        )
+    candidates.sort(key=lambda item: (-int(item["score"]), str(item["relative_path"])))
+    selected = None
+    status = "not_found"
+    if candidates:
+        top = int(candidates[0]["score"])
+        tied = [item for item in candidates if int(item["score"]) == top]
+        if len(tied) == 1:
+            selected = tied[0]["path"]
+            status = "selected"
+        else:
+            status = "ambiguous"
+    return {
+        "schema_version": 1,
+        "module": "hevc_legacy_discovery",
+        "run_root": str(run_root),
+        "status": status,
+        "selected_legacy_json": selected,
+        "candidate_count": len(candidates),
+        "candidates": candidates,
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="video-forensics-hevc-legacy-discovery")
+    parser.add_argument("run_root", type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    args = parser.parse_args()
+    try:
+        result = discover(args.run_root)
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(
+            json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    except (FileNotFoundError, OSError, TypeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result["status"] != "ambiguous" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

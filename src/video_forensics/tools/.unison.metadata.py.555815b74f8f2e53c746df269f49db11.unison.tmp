@@ -1,0 +1,146 @@
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from pathlib import Path
+from time import monotonic
+from typing import Any
+
+from video_forensics.manifest import atomic_write_json, utc_now
+from video_forensics.process import CommandResult, run_command
+
+
+@dataclass(frozen=True)
+class ToolSpec:
+    name: str
+    executable: Path
+    version_args: tuple[str, ...]
+
+
+DEFAULT_TOOLS = (
+    ToolSpec("ffprobe", Path("/usr/bin/ffprobe"), ("-version",)),
+    ToolSpec("mediainfo", Path("/usr/bin/mediainfo"), ("--Version",)),
+    ToolSpec("exiftool", Path("/usr/bin/exiftool"), ("-ver",)),
+)
+
+
+def _require_executable(path: Path) -> None:
+    if not path.is_file():
+        raise FileNotFoundError(f"required executable not found: {path}")
+    if not path.stat().st_mode & 0o111:
+        raise PermissionError(f"required executable is not executable: {path}")
+
+
+def _run_checked(argv: list[str], timeout: int) -> CommandResult:
+    result = run_command(argv, timeout=timeout)
+    if result.returncode != 0:
+        message = result.stderr.strip() or result.stdout.strip() or "no diagnostic output"
+        raise RuntimeError(f"command failed ({result.returncode}): {argv[0]}: {message}")
+    return result
+
+
+def _parse_json(raw: str, tool: str) -> Any:
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"{tool} returned invalid JSON: {exc}") from exc
+
+
+def _write_raw(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8", newline="\n")
+
+
+def _version(spec: ToolSpec) -> dict[str, object]:
+    result = _run_checked([str(spec.executable), *spec.version_args], timeout=60)
+    output = result.stdout.strip() or result.stderr.strip()
+    first_line = output.splitlines()[0] if output else ""
+    return {
+        "executable": str(spec.executable),
+        "version_output": first_line,
+        "command": result.to_dict(),
+    }
+
+
+def analyze(
+    video: Path,
+    output_dir: Path,
+    *,
+    tools: tuple[ToolSpec, ...] = DEFAULT_TOOLS,
+    timeout: int = 3600,
+) -> dict[str, object]:
+    video = video.resolve(strict=True)
+    if not video.is_file():
+        raise ValueError(f"input is not a regular file: {video}")
+
+    tool_map = {tool.name: tool for tool in tools}
+    required = {"ffprobe", "mediainfo", "exiftool"}
+    missing = sorted(required - set(tool_map))
+    if missing:
+        raise ValueError(f"missing tool specifications: {', '.join(missing)}")
+    for spec in tool_map.values():
+        _require_executable(spec.executable)
+
+    started = monotonic()
+    versions = {name: _version(tool_map[name]) for name in sorted(required)}
+
+    commands = {
+        "ffprobe": [
+            str(tool_map["ffprobe"].executable),
+            "-v",
+            "error",
+            "-print_format",
+            "json",
+            "-show_format",
+            "-show_streams",
+            "-show_chapters",
+            "-show_programs",
+            str(video),
+        ],
+        "mediainfo": [
+            str(tool_map["mediainfo"].executable),
+            "--Output=JSON",
+            str(video),
+        ],
+        "exiftool": [
+            str(tool_map["exiftool"].executable),
+            "-json",
+            "-G1",
+            "-a",
+            "-u",
+            str(video),
+        ],
+    }
+
+    raw_dir = output_dir / "metadata" / "raw"
+    parsed: dict[str, Any] = {}
+    command_records: dict[str, object] = {}
+    for name in ("ffprobe", "mediainfo", "exiftool"):
+        result = _run_checked(commands[name], timeout=timeout)
+        _write_raw(raw_dir / f"{name}.json", result.stdout)
+        parsed[name] = _parse_json(result.stdout, name)
+        command_records[name] = result.to_dict()
+
+    result: dict[str, object] = {
+        "schema_version": 1,
+        "stage": "metadata",
+        "completed_at_utc": utc_now(),
+        "duration_seconds": round(monotonic() - started, 6),
+        "tools": versions,
+        "commands": command_records,
+        "outputs": {
+            "ffprobe": "metadata/raw/ffprobe.json",
+            "mediainfo": "metadata/raw/mediainfo.json",
+            "exiftool": "metadata/raw/exiftool.json",
+        },
+        "summary": {
+            "ffprobe_stream_count": len(parsed["ffprobe"].get("streams", [])),
+            "ffprobe_has_format": bool(parsed["ffprobe"].get("format")),
+            "mediainfo_track_count": len(
+                parsed["mediainfo"].get("media", {}).get("track", [])
+            ),
+            "exiftool_record_count": len(parsed["exiftool"]),
+        },
+    }
+    atomic_write_json(output_dir / "metadata" / "metadata.json", result)
+    return result

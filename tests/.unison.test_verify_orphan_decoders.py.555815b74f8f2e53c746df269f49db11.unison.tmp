@@ -1,0 +1,46 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import numpy as np
+from PIL import Image
+
+from video_forensics.native.verify_orphan_decoders import frame_metrics, verify
+
+
+def make_decoder(root: Path, name: str, value: int) -> Path:
+    decoder = root / name
+    variant = decoder / "orphan_ref_nal_000001"
+    variant.mkdir(parents=True)
+    frame = np.full((4, 5, 3), value, dtype=np.uint8)
+    Image.fromarray(frame, mode="RGB").save(variant / "frame_0000.png")
+    manifest = {
+        "variants": [
+            {
+                "variant_id": "orphan_ref_nal_000001",
+                "stream_sha256": "abc",
+            }
+        ]
+    }
+    (decoder / "decode_orphan_variants.json").write_text(
+        json.dumps(manifest), encoding="utf-8"
+    )
+    return decoder
+
+
+def test_frame_metrics_identical() -> None:
+    frame = np.arange(60, dtype=np.float64).reshape(4, 5, 3)
+    result = frame_metrics(frame, frame.copy())
+    assert result["mae"] == 0.0
+    assert result["ncc"] == 1.0
+    assert result["identical_pixel_fraction"] == 1.0
+
+
+def test_verify_compares_two_decoders(tmp_path: Path) -> None:
+    first = make_decoder(tmp_path, "libavcodec", 50)
+    second = make_decoder(tmp_path, "libde265", 51)
+    result = verify([first, second], tmp_path / "output")
+    variant = result["comparisons"][0]["variants"][0]
+    assert variant["maximum_mae"] == 1.0
+    assert (tmp_path / "output" / "orphan_decoder_verification.json").is_file()

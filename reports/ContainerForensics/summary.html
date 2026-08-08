@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Raport z Analizy Śledczej Pliku Wideo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1, h2, h3 {
+            color: #2c3e50;
+        }
+        .highlight {
+            background-color: #f9f2f4;
+            padding: 2px 4px;
+            border-radius: 4px;
+            color: #c7254e;
+            font-family: monospace;
+        }
+        .flag {
+            background-color: #ffe6e6;
+            border-left: 5px solid #ff4d4d;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+        .note {
+            background-color: #fff8e6;
+            border-left: 5px solid #ffcc00;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            margin-bottom: 25px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Raport z Informatycznej Analizy Śledczej Pliku Wideo</h1>
+    <p>Poniższy dokument przedstawia przetłumaczone na język powszechny wyniki specjalistycznej weryfikacji budowy wewnętrznej (struktury) nagrania wideo.</p>
+
+    <h2>1. Podstawowe informacje o materiale dowodowym</h2>
+    <table>
+        <tr>
+            <th>Nazwa badanego pliku</th>
+            <td><span class="highlight">1796.mp4</span>[cite: 1, 3]</td>
+        </tr>
+        <tr>
+            <th>Rozmiar pliku</th>
+            <td>2 193 408 bajtów (nieco ponad 2 MB)[cite: 1, 3]</td>
+        </tr>
+        <tr>
+            <th>Format zapisu</th>
+            <td>MP4 / ISO Base Media File Format (wielofunkcyjny format cyfrowy gromadzący dane w tzw. wewnętrznych "kontenerach")[cite: 1, 3]</td>
+        </tr>
+        <tr>
+            <th>Kryptograficzny odcisk palca (Hash SHA-256)</th>
+            <td><span class="highlight">8560a2d703c1025ba7c5b4deef5e53f89b9ee0c1026cae67b4145e34d137a903</span> (gwarantuje niezmienność dowodu)[cite: 1, 3]</td>
+        </tr>
+    </table>
+
+    <h2>2. Najważniejsze ustalenia techniczne</h2>
+    <p>Oprogramowanie analityczne służące do wyszukiwania nieprawidłowości (triage) wyodrębniło zestaw ustaleń, które rzucają światło na historię życia badanego pliku[cite: 1, 3]. Zauważono 8 cech istotnych dla sprawy, z czego dwie charakteryzują się większym znaczeniem[cite: 1, 3].</p>
+
+    <h3>Cechy o podwyższonym znaczeniu (Anomalie)</h3>
+    <div class="flag">
+        <strong>1. Doklejone, niezidentyfikowane dane po zakończeniu właściwego pliku wideo</strong><br>
+        Pliki z wideo mają z góry określoną budowę wewnętrzną, która mówi systemowi, gdzie zaczyna się i kończy nagranie[cite: 1, 3]. Narzędzie wykryło, że na samym końcu badanego pliku znajduje się pakiet 625 znaków (bajtów), które nie należą do filmu[cite: 1, 3]. Taka anomalia występuje czasami jako uboczny efekt pracy niektórych programów edycyjnych, ale w informatyce śledczej używa się tej metody również do ukrywania dodatkowych informacji w plikach[cite: 1, 3]. Będzie to wymagało manualnych oględzin.
+    </div>
+
+    <div class="flag">
+        <strong>2. Błąd struktury danych (Parse deviation)</strong><br>
+        Program badawczy wykrył tuż przy końcu pliku usterkę[cite: 1, 3]. Znajduje się tam wadliwy element informujący, że plik jest wielokrotnie większy (ma ponad 300 megabajtów) niż w rzeczywistości jest nagrany na dysku (2 MB)[cite: 1, 3]. Taki wskaźnik sugeruje, że plik ucięto w nienaturalny sposób, albo uszkodził go proces zapisu[cite: 1, 3].
+    </div>
+
+    <h3>Pozostałe ustalenia techniczne i wnioski</h3>
+    <div class="note">
+        <strong>3. Ślady użycia oprogramowania komputerowego (zamiast oryginalnej kamery)</strong><br>
+        Sposób ułożenia poszczególnych "klocków" w pliku pasuje z wysokim prawdopodobieństwem do profilu narzędzia <em>FFmpeg</em>[cite: 1, 3]. Jest to wysoce popularny system do obróbki wideo (często ukryty w innych aplikacjach). Oznacza to, że plik prawdopodobnie został poddany tzw. rekompresji, czyli został przekonwertowany lub pocięty w programie komputerowym, a nie zgrany na dysk w surowej formie wprost z np. urządzenia mobilnego czy rejestratora samochodowego[cite: 1, 3].
+    </div>
+
+    <div class="note">
+        <strong>4. Zerowe czasy nagrania (1904 rok)</strong><br>
+        W opisie pliku brakuje faktycznego czasu, w jakim powstało wideo. W miejscu dat system wpisał tak zwaną wartość domyślną z początku poprzedniego wieku (rok 1904 dla systemów firmy Apple)[cite: 1, 3, 4]. Sytuacja ta najczęściej powstaje, gdy urządzenie rejestrujące nie miało ustawionego własnego kalendarza i zegara (co często zdarza się w rejestratorach trasy typu "dashcam" lub po przerobieniu na komputerze)[cite: 1, 3, 4].
+    </div>
+
+    <div class="note">
+        <strong>5. Rozbieżności w czasach trwania dźwięku i obrazu</strong><br>
+        Techniczny czas trwania ścieżki dźwiękowej minimalnie różni się od ogólnego czasu trwania całości wideo opisanego w innym miejscu nagłówka[cite: 1, 3, 4]. Literatura specjalistyczna (Hall, 2015) wskazuje, że tego typu rozbieżności to mocna wskazówka świadcząca o tym, iż materiał był "łączony" z różnych fragmentów lub przycinany (tzw. "trimming")[cite: 1, 3, 4].
+    </div>
+
+    <h2>3. Zastrzeżenia</h2>
+    <p>Omawiana ekspertyza opiera się na wstępnej weryfikacji struktury. Znalezienie powyższych śladów działania programów do obróbki oraz doklejonych danych, w świetle rygorów techniki śledczej dowodzi samej fizycznej modyfikacji "opakowania" tego pliku, ale nie orzeka jeszcze kategorycznie o fałszowaniu treści (obrazu) zapisanego na wideo[cite: 3, 5]. Wyjaśnienia wymaga ostateczna zawartość wspomnianych 625 doklejonych znaków na końcu materiału.</p>
+
+</body>
+</html>

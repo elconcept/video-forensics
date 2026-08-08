@@ -1,0 +1,77 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+ROOT = Path.cwd()
+RUN = ROOT / "work/results/hevc-migration-reference-1796-10"
+OUTPUT = ROOT / "hevc_reference_zero_records_diagnosis.txt"
+SKIP = {".git", ".venv", "build", "dist", "__pycache__"}
+TERMS = (
+    "comparable_record_count",
+    "rps_comparison_complete",
+    "migration_acceptance",
+    "legacy_comparison_requested",
+)
+
+
+def inspect_json(path: Path) -> list[str]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return [f"JSON ERROR: {exc}"]
+    found: list[str] = []
+
+    def walk(node: object, prefix: str = "$") -> None:
+        if isinstance(node, dict):
+            for key, child in node.items():
+                child_prefix = f"{prefix}.{key}"
+                if key in TERMS:
+                    found.append(f"{child_prefix} = {child!r}")
+                walk(child, child_prefix)
+        elif isinstance(node, list):
+            for index, child in enumerate(node):
+                walk(child, f"{prefix}[{index}]")
+
+    walk(value)
+    return found
+
+
+with OUTPUT.open("w", encoding="utf-8") as handle:
+    handle.write(f"RUN EXISTS: {RUN.exists()}\n")
+    if RUN.exists():
+        handle.write("\n=== JSON RESULTS ===\n")
+        for path in sorted(RUN.rglob("*.json")):
+            findings = inspect_json(path)
+            if findings:
+                handle.write(f"\nFILE: {path}\n")
+                for finding in findings:
+                    handle.write(f"  {finding}\n")
+
+    handle.write("\n=== SOURCE CONTEXT ===\n")
+    for path in sorted(ROOT.rglob("*.py")):
+        relative = path.relative_to(ROOT)
+        if any(part in SKIP or part == "work" for part in relative.parts):
+            continue
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError):
+            continue
+        indexes = [
+            index
+            for index, line in enumerate(lines)
+            if any(term in line for term in TERMS)
+        ]
+        if not indexes:
+            continue
+        handle.write(f"\nFILE: {path}\n")
+        emitted: set[int] = set()
+        for index in indexes:
+            for line_number in range(max(0, index - 12), min(len(lines), index + 13)):
+                if line_number in emitted:
+                    continue
+                emitted.add(line_number)
+                marker = ">>>" if line_number == index else "   "
+                handle.write(f"{marker} {line_number + 1:5d}: {lines[line_number]}\n")
+
+print(OUTPUT)

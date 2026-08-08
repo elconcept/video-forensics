@@ -1,0 +1,156 @@
+from __future__ import annotations
+
+import csv
+from pathlib import Path
+from time import monotonic
+
+from video_forensics.manifest import atomic_write_json, utc_now
+
+SYNC_TOLERANCE_SECONDS = 0.050
+END_TOLERANCE_SECONDS = 0.100
+
+
+def _float_or_none(value: object) -> float | None:
+    if value in (None, "", "None", "N/A"):
+        return None
+    try:
+        return float(str(value))
+    except ValueError:
+        return None
+
+
+def _read_csv(path: Path, *, optional: bool = False) -> list[dict[str, str]]:
+    if not path.is_file():
+        if optional:
+            return []
+        raise FileNotFoundError(f"required stage output not found: {path}")
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def _video_bounds(rows: list[dict[str, str]]) -> tuple[float | None, float | None]:
+    starts = [
+        value
+        for row in rows
+        if (
+            value := _float_or_none(
+                row.get("best_effort_timestamp_time") or row.get("pts_time")
+            )
+        )
+        is not None
+    ]
+    if not starts:
+        return None, None
+
+    last_row = rows[-1]
+    last_start = _float_or_none(
+        last_row.get("best_effort_timestamp_time") or last_row.get("pts_time")
+    )
+    last_duration = _float_or_none(last_row.get("pkt_duration_time")) or 0.0
+    end = None if last_start is None else last_start + last_duration
+    return starts[0], end
+
+
+def _audio_bounds(rows: list[dict[str, str]]) -> tuple[float | None, float | None]:
+    starts = [
+        value
+        for row in rows
+        if (value := _float_or_none(row.get("pts_time"))) is not None
+    ]
+    if not starts:
+        return None, None
+
+    last_row = rows[-1]
+    last_start = _float_or_none(last_row.get("pts_time"))
+    last_duration = _float_or_none(last_row.get("duration_time")) or 0.0
+    end = None if last_start is None else last_start + last_duration
+    return starts[0], end
+
+
+def _findings(
+    video_start: float | None,
+    video_end: float | None,
+    audio_start: float | None,
+    audio_end: float | None,
+) -> list[dict[str, object]]:
+    findings: list[dict[str, object]] = []
+    if audio_start is None or audio_end is None:
+        return [{"kind": "no_audio_timeline_available"}]
+    if video_start is None or video_end is None:
+        return [{"kind": "no_video_timeline_available"}]
+
+    start_offset = audio_start - video_start
+    end_offset = audio_end - video_end
+    if abs(start_offset) > SYNC_TOLERANCE_SECONDS:
+        findings.append(
+            {
+                "kind": "av_start_offset_candidate",
+                "offset_seconds": round(start_offset, 9),
+                "video_start_seconds": video_start,
+                "audio_start_seconds": audio_start,
+            }
+        )
+    if abs(end_offset) > END_TOLERANCE_SECONDS:
+        findings.append(
+            {
+                "kind": "av_end_offset_candidate",
+                "offset_seconds": round(end_offset, 9),
+                "video_end_seconds": video_end,
+                "audio_end_seconds": audio_end,
+            }
+        )
+
+    drift = end_offset - start_offset
+    if abs(drift) > END_TOLERANCE_SECONDS:
+        findings.append(
+            {
+                "kind": "av_relative_drift_candidate",
+                "drift_seconds": round(drift, 9),
+                "start_offset_seconds": round(start_offset, 9),
+                "end_offset_seconds": round(end_offset, 9),
+            }
+        )
+    return findings
+
+
+def analyze(video: Path, output_dir: Path) -> dict[str, object]:
+    video = video.resolve(strict=True)
+    if not video.is_file():
+        raise ValueError(f"input is not a regular file: {video}")
+
+    started = monotonic()
+    video_rows = _read_csv(output_dir / "timeline" / "frames.csv")
+    audio_rows = _read_csv(output_dir / "audio" / "packets.csv", optional=True)
+    video_start, video_end = _video_bounds(video_rows)
+    audio_start, audio_end = _audio_bounds(audio_rows)
+    findings = _findings(video_start, video_end, audio_start, audio_end)
+
+    result: dict[str, object] = {
+        "schema_version": 1,
+        "stage": "av_sync",
+        "completed_at_utc": utc_now(),
+        "duration_seconds": round(monotonic() - started, 6),
+        "applicability": "applicable" if audio_rows else "no_audio_timeline",
+        "method": {
+            "start_offset": "audio first PTS minus video first timestamp",
+            "end_offset": "audio calculated end minus video calculated end",
+            "relative_drift": "end offset minus start offset",
+            "start_tolerance_seconds": SYNC_TOLERANCE_SECONDS,
+            "end_and_drift_tolerance_seconds": END_TOLERANCE_SECONDS,
+        },
+        "bounds": {
+            "video_start_seconds": video_start,
+            "video_end_seconds": video_end,
+            "audio_start_seconds": audio_start,
+            "audio_end_seconds": audio_end,
+        },
+        "summary": {
+            "video_frame_count": len(video_rows),
+            "audio_packet_count": len(audio_rows),
+            "finding_count": len(findings),
+        },
+        "outputs": {"findings": "av_sync/findings.json"},
+    }
+    atomic_write_json(output_dir / "av_sync" / "findings.json", findings)
+    atomic_write_json(output_dir / "av_sync" / "av_sync.json", result)
+    return result

@@ -1,0 +1,56 @@
+{
+  "case_count": 1,
+  "cases": [
+    {
+      "case_id": "1796-main",
+      "checks": [
+        {
+          "actual": "8560a2d703c1025ba7c5b4deef5e53f89b9ee0c1026cae67b4145e34d137a903",
+          "expected": "8560a2d703c1025ba7c5b4deef5e53f89b9ee0c1026cae67b4145e34d137a903",
+          "id": "SOURCE_SHA256",
+          "passed": true
+        },
+        {
+          "id": "FFMPEG_CONTROL",
+          "passed": true
+        },
+        {
+          "actual": 0,
+          "id": "FIELD_MISMATCH_LIMIT",
+          "maximum": 0,
+          "passed": true
+        },
+        {
+          "actual": 252,
+          "id": "COMPARABLE_RECORD_MINIMUM",
+          "minimum": 1,
+          "passed": true
+        },
+        {
+          "id": "LEGACY_SEMANTIC_AGREEMENT",
+          "passed": true
+        },
+        {
+          "id": "RPS_COMPARISON_COMPLETE",
+          "passed": true
+        }
+      ],
+      "comparison": "/home/tom/projects/video-forensics/work/results/1796/20260807T023120Z/hevc_parser_migration/reference_comparison/reference_comparison.json",
+      "passed": true,
+      "source": "/home/tom/projects/video-forensics/work/evidence/1796.mp4",
+      "source_sha256": "8560a2d703c1025ba7c5b4deef5e53f89b9ee0c1026cae67b4145e34d137a903"
+    }
+  ],
+  "config": "/home/tom/projects/video-forensics/config/hevc_migration_references.json",
+  "legacy_removal_ready": true,
+  "module": "hevc_migration_regression",
+  "passed": true,
+  "passed_case_count": 1,
+  "policy": {
+    "independent_control": "FFmpeg trace_headers",
+    "legacy_backend": "comparison_only",
+    "legacy_removal_requires_all_cases": true,
+    "primary_backend": "h265nal"
+  },
+  "schema_version": 1
+}

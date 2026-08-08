@@ -1,0 +1,5 @@
+{
+  "profile_id": "software_single_thread",
+  "description": "Native FFmpeg software decode with one thread",
+  "ffmpeg_args": ["-threads", "1"]
+}

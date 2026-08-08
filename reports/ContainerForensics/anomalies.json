@@ -1,0 +1,347 @@
+{
+  "analysis_date": "2026-08-06 19:38:46 UTC",
+  "container_type": "MP4 / ISO Base Media File Format (incl. MOV)",
+  "file_size": 2193408,
+  "findings": [
+    {
+      "box_offsets": [
+        2192783
+      ],
+      "description": "625 byte(s) follow the end of the last top-level box and are not part of any declared box.",
+      "detail": "last_box_end=2192783, file_size=2193408, trailing_bytes=625",
+      "id": "A6",
+      "module": "atoms",
+      "severity": "FLAG",
+      "significance": "Data appended after the final box is outside the ISO-BMFF structure. Small amounts can be benign padding, but appended data is a documented concealment technique and should be examined (e.g. hex-inspected) to determine its content.",
+      "standard": "ISO/IEC 14496-12 \u00a74.2 (file is a sequence of boxes); Hall (2015), Analysis of MP4 Container File Format Forensics",
+      "title": "Data present after last top-level box"
+    },
+    {
+      "box_offsets": [],
+      "description": "The parser encountered a structure that deviates from ISO/IEC 14496-12.",
+      "detail": "offset=2192783: Box '\u00ee\u00fe|\u0080' declares size 346733863 extending to offset 348926646, beyond its container end 2193408. Treated as truncated.",
+      "id": "P1",
+      "module": "atoms",
+      "severity": "FLAG",
+      "significance": "A file that cannot be parsed strictly per the specification is itself a forensic finding; it may be truncated, malformed, or non-standard.",
+      "standard": "ISO/IEC 14496-12",
+      "title": "Container parse deviation"
+    },
+    {
+      "box_offsets": [],
+      "description": "The container signature is most similar to the 'FFmpeg Re-encoded' profile. This is a similarity score against documented profiles, not a device identification.",
+      "detail": "similarity_score=4; compatible brands overlap ['isom']; video codec 'hvc1' matches; audio codec 'mp4a' matches  | notes: FFmpeg-encoded files are identifiable by Lavf/Lavc encoder strings in udta metadata and characteristic timescale values. Presence indicates post-processing (which many tools perform under the hood), not necessarily content manipulation.",
+      "id": "D1",
+      "module": "device",
+      "severity": "NOTE",
+      "significance": "The closest profile corresponds to re-encoding/editing software, which indicates the file passed through post-processing (not necessarily content manipulation).",
+      "standard": "Hall (2015), Analysis of MP4 Container File Format Forensics; device_db v1.1.1; sources: Hall 2015, FFmpeg documentation, published forensic literature on re-encoded media",
+      "title": "Closest device-class profile: FFmpeg Re-encoded"
+    },
+    {
+      "box_offsets": [],
+      "description": "One or more boxes carry zero creation/modification times (1904-01-01 epoch).",
+      "detail": "boxes with zero timestamps: ['mvhd', 'tkhd[1]', 'tkhd[2]', 'mdhd[0]', 'mdhd[1]']",
+      "id": "M1",
+      "module": "metadata",
+      "severity": "NOTE",
+      "significance": "Zero timestamps mean the recording device did not set a clock. Documented but not an anomaly alone \u2014 common on dashcams and some action cameras.",
+      "standard": "ISO/IEC 14496-12; SWGDE Technical Overview",
+      "title": "Zero (epoch) timestamps present"
+    },
+    {
+      "box_offsets": [],
+      "description": "Track 2 (soun) track(tkhd) duration differs from movie duration by more than tolerance.",
+      "detail": "track(tkhd)=12.864s, mvhd=15.669s",
+      "id": "M3",
+      "module": "metadata",
+      "severity": "NOTE",
+      "significance": "Durations that do not reconcile across mvhd, tkhd and mdhd are documented in Hall (2015) as indicators of assembled or trimmed content. Small differences can be benign (edit lists, differing track lengths).",
+      "standard": "ISO/IEC 14496-12 \u00a78.2.2, \u00a78.3.2, \u00a78.4.2; Hall (2015), Analysis of MP4 Container File Format Forensics",
+      "title": "Duration mismatch across boxes"
+    },
+    {
+      "box_offsets": [],
+      "description": "Track 2 (soun) media(mdhd) duration differs from movie duration by more than tolerance.",
+      "detail": "media(mdhd)=12.864s, mvhd=15.669s",
+      "id": "M3",
+      "module": "metadata",
+      "severity": "NOTE",
+      "significance": "Durations that do not reconcile across mvhd, tkhd and mdhd are documented in Hall (2015) as indicators of assembled or trimmed content. Small differences can be benign (edit lists, differing track lengths).",
+      "standard": "ISO/IEC 14496-12 \u00a78.2.2, \u00a78.3.2, \u00a78.4.2; Hall (2015), Analysis of MP4 Container File Format Forensics",
+      "title": "Duration mismatch across boxes"
+    },
+    {
+      "box_offsets": [
+        2379
+      ],
+      "description": "Track 1 (vide) uses a 64-bit co64 offset table although the file is under 4 GB.",
+      "detail": "file_size=2193408 bytes, offset_width=64",
+      "id": "O1",
+      "module": "offsets",
+      "severity": "NOTE",
+      "significance": "Direct camera recordings under 4 GB normally use 32-bit stco. co64 here may indicate a writer/muxer that defaults to 64-bit offsets.",
+      "standard": "ISO/IEC 14496-12 \u00a78.7.5; Hall (2015), Analysis of MP4 Container File Format Forensics",
+      "title": "64-bit offset table (co64) in a sub-4GB file"
+    },
+    {
+      "box_offsets": [
+        5546
+      ],
+      "description": "Track 2 (soun) uses a 64-bit co64 offset table although the file is under 4 GB.",
+      "detail": "file_size=2193408 bytes, offset_width=64",
+      "id": "O1",
+      "module": "offsets",
+      "severity": "NOTE",
+      "significance": "Direct camera recordings under 4 GB normally use 32-bit stco. co64 here may indicate a writer/muxer that defaults to 64-bit offsets.",
+      "standard": "ISO/IEC 14496-12 \u00a78.7.5; Hall (2015), Analysis of MP4 Container File Format Forensics",
+      "title": "64-bit offset table (co64) in a sub-4GB file"
+    },
+    {
+      "box_offsets": [],
+      "description": "ftyp, moov and mdat are all present in expected counts.",
+      "detail": "ftyp=1 moov=1 mdat=1",
+      "id": "A1",
+      "module": "atoms",
+      "severity": "INFO",
+      "significance": "Consistent with a structurally complete container.",
+      "standard": "ISO/IEC 14496-12 \u00a74.3, \u00a78.1, \u00a78.2",
+      "title": "Required boxes present"
+    },
+    {
+      "box_offsets": [],
+      "description": "The moov box precedes the first mdat box.",
+      "detail": "moov@28, first mdat@7170",
+      "id": "A2",
+      "module": "atoms",
+      "severity": "INFO",
+      "significance": "Standard progressive layout consistent with most camera and mobile recordings.",
+      "standard": "ISO/IEC 14496-12 \u00a78.2; Hall (2015), Analysis of MP4 Container File Format Forensics",
+      "title": "moov precedes mdat (progressive layout)"
+    },
+    {
+      "box_offsets": [],
+      "description": "Recorded the declared major brand and compatible brands.",
+      "detail": "major_brand='mp42', compatible_brands=['mp42', 'isom', 'HKMI']",
+      "id": "A3",
+      "module": "atoms",
+      "severity": "INFO",
+      "significance": "Brand declarations are cross-referenced against the device signature database (see Device Match section).",
+      "standard": "ISO/IEC 14496-12 \u00a74.3",
+      "title": "File-type brand declaration"
+    },
+    {
+      "box_offsets": [],
+      "description": "Enumerated media handler types across all tracks.",
+      "detail": "video(vide)=1, audio(soun)=1, other=[]",
+      "id": "A4",
+      "module": "atoms",
+      "severity": "INFO",
+      "significance": "Establishes the track composition of the file.",
+      "standard": "ISO/IEC 14496-12 \u00a78.4.3 (Handler Reference Box)",
+      "title": "Track handler inventory"
+    },
+    {
+      "box_offsets": [],
+      "description": "Container characteristics extracted for device matching.",
+      "detail": "major_brand='mp42', compatible=['mp42', 'isom', 'HKMI'], video_codec=hvc1, audio_codec=mp4a, video_ts=1000, audio_ts=16000, moov_before_mdat=True, edit_list=False",
+      "id": "D0",
+      "module": "device",
+      "severity": "INFO",
+      "significance": "Compared against the device signature database below.",
+      "standard": "ISO/IEC 14496-12; Hall (2015), Analysis of MP4 Container File Format Forensics",
+      "title": "Extracted container signature"
+    },
+    {
+      "box_offsets": [],
+      "description": "Second-closest device-class profile, shown so the discrimination margin is visible.",
+      "detail": "Android (Generic MP4) (similarity_score 3)",
+      "id": "D2",
+      "module": "device",
+      "severity": "INFO",
+      "significance": "A similarity score, not a device identification. A small margin between the top profiles means the closest-profile result is weakly discriminative.",
+      "standard": "device_db v1.1.1",
+      "title": "Runner-up profile (for transparency)"
+    },
+    {
+      "box_offsets": [],
+      "description": "No 'elst' edit-list box found in any track.",
+      "detail": "elst count = 0",
+      "id": "E1",
+      "module": "editlist",
+      "severity": "INFO",
+      "significance": "Absence of an edit list is consistent with an unedited single-generation recording.",
+      "standard": "ISO/IEC 14496-12 \u00a78.6.6; Hall (2015), Analysis of MP4 Container File Format Forensics",
+      "title": "No edit list present"
+    },
+    {
+      "box_offsets": [],
+      "description": "Derived the video frame rate for track 1 from the timescale and the time-to-sample table.",
+      "detail": "timescale=1000, dominant_sample_delta=66, nominal_fps=15.152 avg_fps(samples/duration)=15.062, stts_entry_count=95",
+      "id": "M2",
+      "module": "metadata",
+      "severity": "INFO",
+      "significance": "Frame rate documented and cross-checked against the media timescale.",
+      "standard": "ISO/IEC 14496-12 \u00a78.6.1 (Decoding Time to Sample), \u00a78.4.2; Hall (2015), Analysis of MP4 Container File Format Forensics",
+      "title": "Video frame rate vs. timescale"
+    },
+    {
+      "box_offsets": [],
+      "description": "Recorded movie and per-track timescales.",
+      "detail": "vide track 1: media_ts=1000; soun track 2: media_ts=16000",
+      "id": "M2",
+      "module": "metadata",
+      "severity": "INFO",
+      "significance": "Timescales documented for reproducibility.",
+      "standard": "ISO/IEC 14496-12 \u00a78.2.2, \u00a78.4.2",
+      "title": "Timescale inventory"
+    },
+    {
+      "box_offsets": [],
+      "description": "Video track 1 codec parameters.",
+      "detail": "codec=hvc1, stsd=1920x1080, tkhd=1920.0x1080.0, depth=24",
+      "id": "M4",
+      "module": "metadata",
+      "severity": "INFO",
+      "significance": "Codec parameters recorded for cross-validation.",
+      "standard": "ISO/IEC 14496-12 \u00a78.5.2 (Sample Description Box)",
+      "title": "Video codec parameters (hvc1)"
+    },
+    {
+      "box_offsets": [],
+      "description": "Audio track 2 codec parameters.",
+      "detail": "codec=mp4a, channels=1, sample_size=16, sample_rate=16000",
+      "id": "M4",
+      "module": "metadata",
+      "severity": "INFO",
+      "significance": "Codec parameters recorded for cross-validation.",
+      "standard": "ISO/IEC 14496-12 \u00a78.5.2",
+      "title": "Audio codec parameters (mp4a)"
+    },
+    {
+      "box_offsets": [],
+      "description": "Track 1 (vide) chunk offsets increase monotonically.",
+      "detail": "236 chunks, monotonic increasing",
+      "id": "O2",
+      "module": "offsets",
+      "severity": "INFO",
+      "significance": "Consistent with sequential single-generation writing.",
+      "standard": "ISO/IEC 14496-12 \u00a78.7.5",
+      "title": "Chunk offsets monotonic"
+    },
+    {
+      "box_offsets": [],
+      "description": "Track 2 (soun) chunk offsets increase monotonically.",
+      "detail": "201 chunks, monotonic increasing",
+      "id": "O2",
+      "module": "offsets",
+      "severity": "INFO",
+      "significance": "Consistent with sequential single-generation writing.",
+      "standard": "ISO/IEC 14496-12 \u00a78.7.5",
+      "title": "Chunk offsets monotonic"
+    },
+    {
+      "box_offsets": [],
+      "description": "All chunk offsets for track 1 (vide) fall within mdat region(s).",
+      "detail": "236 offsets validated against 1 mdat region(s)",
+      "id": "O4",
+      "module": "offsets",
+      "severity": "INFO",
+      "significance": "Sample tables are consistent with the media payload.",
+      "standard": "ISO/IEC 14496-12 \u00a78.1.1, \u00a78.7.5",
+      "title": "Chunk offsets within mdat"
+    },
+    {
+      "box_offsets": [],
+      "description": "All chunk offsets for track 2 (soun) fall within mdat region(s).",
+      "detail": "201 offsets validated against 1 mdat region(s)",
+      "id": "O4",
+      "module": "offsets",
+      "severity": "INFO",
+      "significance": "Sample tables are consistent with the media payload.",
+      "standard": "ISO/IEC 14496-12 \u00a78.1.1, \u00a78.7.5",
+      "title": "Chunk offsets within mdat"
+    },
+    {
+      "box_offsets": [],
+      "description": "Computed the video-to-audio chunk ratio and run structure.",
+      "detail": "video_chunks=236, audio_chunks=201, V:A ratio=1.17, longest single-kind run=44, distinct runs=373, expected_runs~=402",
+      "id": "O5",
+      "module": "interleaving",
+      "severity": "INFO",
+      "significance": "Regular interleaving with short alternating runs is consistent with live capture.",
+      "standard": "ISO/IEC 14496-12; Hall (2015), Analysis of MP4 Container File Format Forensics",
+      "title": "Interleave ratio"
+    },
+    {
+      "box_offsets": [],
+      "description": "Total declared sample sizes reconcile with the mdat payload within 1% of file size.",
+      "detail": "mdat_payload=2185605, declared=2185605, surplus=0",
+      "id": "O7",
+      "module": "offsets",
+      "severity": "INFO",
+      "significance": "Consistent with no unaccounted data in mdat.",
+      "standard": "ISO/IEC 14496-12 \u00a78.1.1, \u00a78.7.3",
+      "title": "mdat payload accounted for"
+    },
+    {
+      "box_offsets": [],
+      "description": "Track 1 (vide): stsc chunk references fall within the stco chunk count.",
+      "detail": "stsc max first_chunk=1, stco chunk_count=236",
+      "id": "O8",
+      "module": "offsets",
+      "severity": "INFO",
+      "significance": "Chunk tables are internally consistent.",
+      "standard": "ISO/IEC 14496-12 \u00a78.7.4, \u00a78.7.5",
+      "title": "stsc / stco chunk counts consistent"
+    },
+    {
+      "box_offsets": [],
+      "description": "Track 2 (soun): stsc chunk references fall within the stco chunk count.",
+      "detail": "stsc max first_chunk=1, stco chunk_count=201",
+      "id": "O8",
+      "module": "offsets",
+      "severity": "INFO",
+      "significance": "Chunk tables are internally consistent.",
+      "standard": "ISO/IEC 14496-12 \u00a78.7.4, \u00a78.7.5",
+      "title": "stsc / stco chunk counts consistent"
+    },
+    {
+      "box_offsets": [],
+      "description": "Track 1 (vide): sample counts agree across the available sample tables.",
+      "detail": "stsz=236; stts=236; stsc=236",
+      "id": "O9",
+      "module": "offsets",
+      "severity": "INFO",
+      "significance": "Sample tables are internally consistent.",
+      "standard": "ISO/IEC 14496-12 \u00a78.6.1, \u00a78.7.3, \u00a78.7.4",
+      "title": "Sample counts consistent across tables"
+    },
+    {
+      "box_offsets": [],
+      "description": "Track 2 (soun): sample counts agree across the available sample tables.",
+      "detail": "stsz=201; stts=201; stsc=201",
+      "id": "O9",
+      "module": "offsets",
+      "severity": "INFO",
+      "significance": "Sample tables are internally consistent.",
+      "standard": "ISO/IEC 14496-12 \u00a78.6.1, \u00a78.7.3, \u00a78.7.4",
+      "title": "Sample counts consistent across tables"
+    }
+  ],
+  "input_file": "1796.mp4",
+  "parse_errors": [
+    {
+      "message": "Box '\u00ee\u00fe|\u0080' declares size 346733863 extending to offset 348926646, beyond its container end 2193408. Treated as truncated.",
+      "offset": 2192783
+    }
+  ],
+  "sha256": "8560a2d703c1025ba7c5b4deef5e53f89b9ee0c1026cae67b4145e34d137a903",
+  "summary": {
+    "FLAG": 2,
+    "NOTE": 6,
+    "SIGNIFICANT": 0
+  },
+  "tool": "ContainerForensics",
+  "version": "0.2.0"
+}

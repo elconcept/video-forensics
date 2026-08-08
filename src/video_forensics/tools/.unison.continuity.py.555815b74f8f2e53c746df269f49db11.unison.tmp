@@ -1,0 +1,184 @@
+from __future__ import annotations
+
+import csv
+import statistics
+from collections import Counter
+from pathlib import Path
+from time import monotonic
+
+from video_forensics.manifest import atomic_write_json, utc_now
+
+METRIC_FIELDS = (
+    "mae_previous",
+    "luma_mean",
+    "luma_stddev",
+    "laplacian_variance",
+    "entropy",
+)
+
+
+def _float_or_none(value: object) -> float | None:
+    if value in (None, "", "None", "N/A"):
+        return None
+    try:
+        return float(str(value))
+    except ValueError:
+        return None
+
+
+def _int_or_none(value: object) -> int | None:
+    if value in (None, "", "None", "N/A"):
+        return None
+    try:
+        return int(str(value))
+    except ValueError:
+        return None
+
+
+def _read_csv(path: Path) -> list[dict[str, str]]:
+    if not path.is_file():
+        raise FileNotFoundError(f"required stage output not found: {path}")
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def _median_absolute_deviation(values: list[float]) -> tuple[float, float]:
+    median = statistics.median(values)
+    deviations = [abs(value - median) for value in values]
+    return median, statistics.median(deviations)
+
+
+def _robust_outliers(
+    rows: list[dict[str, str]],
+    field: str,
+    *,
+    threshold: float = 8.0,
+) -> list[dict[str, object]]:
+    available = [
+        value
+        for row in rows
+        if (value := _float_or_none(row.get(field))) is not None
+    ]
+    if len(available) < 5:
+        return []
+
+    median, mad = _median_absolute_deviation(available)
+    if mad == 0:
+        return []
+
+    findings: list[dict[str, object]] = []
+    scale = 1.4826 * mad
+    for row in rows:
+        value = _float_or_none(row.get(field))
+        frame_number = _int_or_none(row.get("frame_number"))
+        if value is None or frame_number is None:
+            continue
+        score = abs(value - median) / scale
+        if score >= threshold:
+            findings.append(
+                {
+                    "kind": "robust_metric_outlier",
+                    "metric": field,
+                    "frame_number": frame_number,
+                    "value": value,
+                    "median": median,
+                    "median_absolute_deviation": mad,
+                    "robust_score": round(score, 6),
+                }
+            )
+    return findings
+
+
+def _load_existing_findings(path: Path, source: str) -> list[dict[str, object]]:
+    if not path.is_file():
+        return []
+    import json
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, list):
+        raise TypeError(f"expected a JSON list: {path}")
+    findings: list[dict[str, object]] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        copied = dict(item)
+        copied["source_stage"] = source
+        findings.append(copied)
+    return findings
+
+
+def _correlate(findings: list[dict[str, object]]) -> list[dict[str, object]]:
+    by_frame: dict[int, list[dict[str, object]]] = {}
+    for finding in findings:
+        frame_number = _int_or_none(finding.get("frame_number"))
+        if frame_number is None:
+            continue
+        by_frame.setdefault(frame_number, []).append(finding)
+
+    correlations: list[dict[str, object]] = []
+    for frame_number, items in sorted(by_frame.items()):
+        categories = sorted(
+            {
+                str(item.get("source_stage") or item.get("metric") or item.get("kind"))
+                for item in items
+            }
+        )
+        if len(categories) < 2:
+            continue
+        correlations.append(
+            {
+                "kind": "multi_signal_candidate",
+                "frame_number": frame_number,
+                "signal_count": len(items),
+                "categories": categories,
+                "signals": items,
+            }
+        )
+    return correlations
+
+
+def analyze(video: Path, output_dir: Path) -> dict[str, object]:
+    video = video.resolve(strict=True)
+    if not video.is_file():
+        raise ValueError(f"input is not a regular file: {video}")
+
+    started = monotonic()
+    metric_rows = _read_csv(output_dir / "frame_metrics" / "metrics.csv")
+    findings: list[dict[str, object]] = []
+    for field in METRIC_FIELDS:
+        for finding in _robust_outliers(metric_rows, field):
+            finding["source_stage"] = "frame_metrics"
+            findings.append(finding)
+
+    findings.extend(
+        _load_existing_findings(output_dir / "timeline" / "anomalies.json", "timeline")
+    )
+    findings.extend(_load_existing_findings(output_dir / "gop" / "findings.json", "gop"))
+
+    correlations = _correlate(findings)
+    kind_counts = Counter(str(item.get("kind", "unknown")) for item in findings)
+    result: dict[str, object] = {
+        "schema_version": 1,
+        "stage": "continuity",
+        "completed_at_utc": utc_now(),
+        "duration_seconds": round(monotonic() - started, 6),
+        "method": {
+            "robust_outlier_threshold": 8.0,
+            "scale": "1.4826 * median absolute deviation",
+            "minimum_observations": 5,
+        },
+        "summary": {
+            "input_metric_rows": len(metric_rows),
+            "finding_count": len(findings),
+            "multi_signal_candidate_count": len(correlations),
+            "finding_kind_counts": dict(sorted(kind_counts.items())),
+        },
+        "outputs": {
+            "findings": "continuity/findings.json",
+            "correlations": "continuity/correlations.json",
+        },
+    }
+    atomic_write_json(output_dir / "continuity" / "findings.json", findings)
+    atomic_write_json(output_dir / "continuity" / "correlations.json", correlations)
+    atomic_write_json(output_dir / "continuity" / "continuity.json", result)
+    return result

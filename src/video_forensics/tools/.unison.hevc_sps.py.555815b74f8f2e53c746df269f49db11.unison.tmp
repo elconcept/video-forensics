@@ -1,0 +1,506 @@
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+from typing import Any
+
+
+class BitReader:
+    def __init__(self, data: bytes) -> None:
+        self.data = data
+        self.position = 0
+
+    @property
+    def bits_left(self) -> int:
+        return len(self.data) * 8 - self.position
+
+    def bit(self) -> int:
+        if self.bits_left <= 0:
+            raise ValueError("unexpected end of SPS RBSP")
+        value = (self.data[self.position // 8] >> (7 - self.position % 8)) & 1
+        self.position += 1
+        return value
+
+    def bits(self, count: int) -> int:
+        if count < 0 or count > self.bits_left:
+            raise ValueError(f"cannot read {count} bits from SPS RBSP")
+        value = 0
+        for _ in range(count):
+            value = (value << 1) | self.bit()
+        return value
+
+    def ue(self) -> int:
+        zeros = 0
+        while self.bit() == 0:
+            zeros += 1
+            if zeros > 31:
+                raise ValueError("SPS Exp-Golomb value exceeds 31 leading zeros")
+        return (1 << zeros) - 1 + (self.bits(zeros) if zeros else 0)
+
+    def se(self) -> int:
+        code_num = self.ue()
+        magnitude = (code_num + 1) // 2
+        return magnitude if code_num % 2 else -magnitude
+
+
+def remove_emulation_prevention(data: bytes) -> bytes:
+    output = bytearray()
+    zeros = 0
+    for value in data:
+        if zeros >= 2 and value == 0x03:
+            zeros = 0
+            continue
+        output.append(value)
+        zeros = zeros + 1 if value == 0 else 0
+    return bytes(output)
+
+
+@dataclass(frozen=True)
+class ExtendedSPS:
+    sps_id: int
+    vps_id: int
+    max_sub_layers_minus1: int
+    temporal_id_nesting_flag: int
+    profile_tier_level: dict[str, Any]
+    chroma_format_idc: int
+    separate_colour_plane_flag: int
+    width: int
+    height: int
+    conformance_window: dict[str, int] | None
+    bit_depth_luma: int
+    bit_depth_chroma: int
+    log2_max_poc_lsb: int
+    sub_layer_ordering: list[dict[str, int]]
+    log2_min_luma_coding_block_size: int
+    log2_diff_max_min_luma_coding_block_size: int
+    log2_min_luma_transform_block_size: int
+    log2_diff_max_min_luma_transform_block_size: int
+    max_transform_hierarchy_depth_inter: int
+    max_transform_hierarchy_depth_intra: int
+    scaling_list_enabled_flag: int
+    scaling_list_data_present_flag: int
+    amp_enabled_flag: int
+    sample_adaptive_offset_enabled_flag: int
+    pcm: dict[str, Any] | None
+    short_term_ref_pic_sets: list[dict[str, Any]]
+    long_term_ref_pics: list[dict[str, Any]]
+    sps_temporal_mvp_enabled_flag: int
+    strong_intra_smoothing_enabled_flag: int
+    vui: dict[str, Any] | None
+    extension: dict[str, Any] | None
+    derived: dict[str, int]
+    parsed_bits: int
+    remaining_bits: int
+
+
+def parse_profile_tier_level(reader: BitReader, max_sub_layers_minus1: int) -> dict[str, Any]:
+    general = {
+        "profile_space": reader.bits(2),
+        "tier_flag": reader.bit(),
+        "profile_idc": reader.bits(5),
+        "profile_compatibility_flags": reader.bits(32),
+        "progressive_source_flag": reader.bit(),
+        "interlaced_source_flag": reader.bit(),
+        "non_packed_constraint_flag": reader.bit(),
+        "frame_only_constraint_flag": reader.bit(),
+        "constraint_indicator_flags": reader.bits(44),
+        "level_idc": reader.bits(8),
+    }
+    profile_present = [reader.bit() for _ in range(max_sub_layers_minus1)]
+    level_present = [reader.bit() for _ in range(max_sub_layers_minus1)]
+    if max_sub_layers_minus1:
+        for _ in range(max_sub_layers_minus1, 8):
+            reader.bits(2)
+    sub_layers: list[dict[str, Any]] = []
+    for index in range(max_sub_layers_minus1):
+        item: dict[str, Any] = {
+            "index": index,
+            "profile_present_flag": profile_present[index],
+            "level_present_flag": level_present[index],
+        }
+        if profile_present[index]:
+            item["profile_space"] = reader.bits(2)
+            item["tier_flag"] = reader.bit()
+            item["profile_idc"] = reader.bits(5)
+            item["profile_compatibility_flags"] = reader.bits(32)
+            item["progressive_source_flag"] = reader.bit()
+            item["interlaced_source_flag"] = reader.bit()
+            item["non_packed_constraint_flag"] = reader.bit()
+            item["frame_only_constraint_flag"] = reader.bit()
+            item["constraint_indicator_flags"] = reader.bits(44)
+        if level_present[index]:
+            item["level_idc"] = reader.bits(8)
+        sub_layers.append(item)
+    return {"general": general, "sub_layers": sub_layers}
+
+
+def skip_scaling_list_data(reader: BitReader) -> None:
+    for size_id in range(4):
+        matrix_step = 3 if size_id == 3 else 1
+        for matrix_id in range(0, 6, matrix_step):
+            pred_mode = reader.bit()
+            if not pred_mode:
+                reader.ue()
+                continue
+            coefficient_count = min(64, 1 << (4 + (size_id << 1)))
+            if size_id > 1:
+                reader.se()
+            for _ in range(coefficient_count):
+                reader.se()
+
+
+def parse_short_term_rps(
+    reader: BitReader,
+    index: int,
+    previous_sets: list[dict[str, Any]],
+) -> dict[str, Any]:
+    predicted = reader.bit() if index else 0
+    if predicted:
+        delta_rps_sign = reader.bit()
+        abs_delta_rps_minus1 = reader.ue()
+        reference = previous_sets[index - 1]
+        reference_deltas = list(reference["delta_poc"])
+        used_flags: list[int] = []
+        use_delta_flags: list[int] = []
+        for _ in range(len(reference_deltas) + 1):
+            used = reader.bit()
+            used_flags.append(used)
+            use_delta_flags.append(1 if used else reader.bit())
+        delta_rps = (1 - 2 * delta_rps_sign) * (abs_delta_rps_minus1 + 1)
+        candidates = reference_deltas + [0]
+        derived = [
+            delta + delta_rps
+            for delta, enabled in zip(candidates, use_delta_flags, strict=True)
+            if enabled and delta + delta_rps != 0
+        ]
+        negative = sorted((value for value in derived if value < 0), reverse=True)
+        positive = sorted(value for value in derived if value > 0)
+        return {
+            "index": index,
+            "inter_ref_pic_set_prediction_flag": 1,
+            "delta_rps_sign": delta_rps_sign,
+            "abs_delta_rps_minus1": abs_delta_rps_minus1,
+            "delta_rps": delta_rps,
+            "used_by_curr_pic_flags": used_flags,
+            "use_delta_flags": use_delta_flags,
+            "num_negative_pics": len(negative),
+            "num_positive_pics": len(positive),
+            "delta_poc": negative + positive,
+        }
+
+    num_negative = reader.ue()
+    num_positive = reader.ue()
+    if num_negative > 16 or num_positive > 16 or num_negative + num_positive > 32:
+        raise ValueError("SPS short-term RPS exceeds HEVC reference limits")
+    deltas: list[int] = []
+    used: list[int] = []
+    value = 0
+    for _ in range(num_negative):
+        value -= reader.ue() + 1
+        deltas.append(value)
+        used.append(reader.bit())
+    value = 0
+    for _ in range(num_positive):
+        value += reader.ue() + 1
+        deltas.append(value)
+        used.append(reader.bit())
+    return {
+        "index": index,
+        "inter_ref_pic_set_prediction_flag": 0,
+        "num_negative_pics": num_negative,
+        "num_positive_pics": num_positive,
+        "delta_poc": deltas,
+        "used_by_curr_pic_flags": used,
+    }
+
+
+def parse_sub_layer_hrd(reader: BitReader, cpb_cnt_minus1: int, sub_pic: int) -> list[dict[str, int]]:
+    entries: list[dict[str, int]] = []
+    for _ in range(cpb_cnt_minus1 + 1):
+        item = {
+            "bit_rate_value_minus1": reader.ue(),
+            "cpb_size_value_minus1": reader.ue(),
+        }
+        if sub_pic:
+            item["cpb_size_du_value_minus1"] = reader.ue()
+            item["bit_rate_du_value_minus1"] = reader.ue()
+        item["cbr_flag"] = reader.bit()
+        entries.append(item)
+    return entries
+
+
+def parse_hrd(reader: BitReader, common_present: int, max_sub_layers_minus1: int) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    nal_present = 0
+    vcl_present = 0
+    sub_pic = 0
+    if common_present:
+        nal_present = reader.bit()
+        vcl_present = reader.bit()
+        result["nal_hrd_parameters_present_flag"] = nal_present
+        result["vcl_hrd_parameters_present_flag"] = vcl_present
+        if nal_present or vcl_present:
+            sub_pic = reader.bit()
+            result["sub_pic_hrd_params_present_flag"] = sub_pic
+            if sub_pic:
+                result["tick_divisor_minus2"] = reader.bits(8)
+                result["du_cpb_removal_delay_increment_length_minus1"] = reader.bits(5)
+                result["sub_pic_cpb_params_in_pic_timing_sei_flag"] = reader.bit()
+                result["dpb_output_delay_du_length_minus1"] = reader.bits(5)
+            result["bit_rate_scale"] = reader.bits(4)
+            result["cpb_size_scale"] = reader.bits(4)
+            if sub_pic:
+                result["cpb_size_du_scale"] = reader.bits(4)
+            result["initial_cpb_removal_delay_length_minus1"] = reader.bits(5)
+            result["au_cpb_removal_delay_length_minus1"] = reader.bits(5)
+            result["dpb_output_delay_length_minus1"] = reader.bits(5)
+    layers: list[dict[str, Any]] = []
+    for index in range(max_sub_layers_minus1 + 1):
+        fixed_general = reader.bit()
+        fixed_within = 1 if fixed_general else reader.bit()
+        elemental = reader.ue() if fixed_within else None
+        low_delay = 0 if fixed_within else reader.bit()
+        cpb_count = 0 if low_delay else reader.ue()
+        if cpb_count > 31:
+            raise ValueError("SPS HRD cpb_cnt_minus1 exceeds 31")
+        layer: dict[str, Any] = {
+            "index": index,
+            "fixed_pic_rate_general_flag": fixed_general,
+            "fixed_pic_rate_within_cvs_flag": fixed_within,
+            "elemental_duration_in_tc_minus1": elemental,
+            "low_delay_hrd_flag": low_delay,
+            "cpb_cnt_minus1": cpb_count,
+        }
+        if nal_present:
+            layer["nal"] = parse_sub_layer_hrd(reader, cpb_count, sub_pic)
+        if vcl_present:
+            layer["vcl"] = parse_sub_layer_hrd(reader, cpb_count, sub_pic)
+        layers.append(layer)
+    result["sub_layers"] = layers
+    return result
+
+
+def parse_vui(reader: BitReader, max_sub_layers_minus1: int) -> dict[str, Any]:
+    vui: dict[str, Any] = {}
+    if reader.bit():
+        aspect_ratio_idc = reader.bits(8)
+        vui["aspect_ratio_idc"] = aspect_ratio_idc
+        if aspect_ratio_idc == 255:
+            vui["sar_width"] = reader.bits(16)
+            vui["sar_height"] = reader.bits(16)
+    if reader.bit():
+        vui["overscan_appropriate_flag"] = reader.bit()
+    if reader.bit():
+        vui["video_format"] = reader.bits(3)
+        vui["video_full_range_flag"] = reader.bit()
+        if reader.bit():
+            vui["colour_primaries"] = reader.bits(8)
+            vui["transfer_characteristics"] = reader.bits(8)
+            vui["matrix_coeffs"] = reader.bits(8)
+    if reader.bit():
+        vui["chroma_sample_loc_type_top_field"] = reader.ue()
+        vui["chroma_sample_loc_type_bottom_field"] = reader.ue()
+    vui["neutral_chroma_indication_flag"] = reader.bit()
+    vui["field_seq_flag"] = reader.bit()
+    vui["frame_field_info_present_flag"] = reader.bit()
+    if reader.bit():
+        vui["default_display_window"] = {
+            "left_offset": reader.ue(),
+            "right_offset": reader.ue(),
+            "top_offset": reader.ue(),
+            "bottom_offset": reader.ue(),
+        }
+    timing_present = reader.bit()
+    vui["timing_info_present_flag"] = timing_present
+    if timing_present:
+        vui["num_units_in_tick"] = reader.bits(32)
+        vui["time_scale"] = reader.bits(32)
+        if reader.bit():
+            vui["num_ticks_poc_diff_one_minus1"] = reader.ue()
+        if reader.bit():
+            vui["hrd"] = parse_hrd(reader, 1, max_sub_layers_minus1)
+    bitstream_restriction = reader.bit()
+    vui["bitstream_restriction_flag"] = bitstream_restriction
+    if bitstream_restriction:
+        vui["tiles_fixed_structure_flag"] = reader.bit()
+        vui["motion_vectors_over_pic_boundaries_flag"] = reader.bit()
+        vui["restricted_ref_pic_lists_flag"] = reader.bit()
+        vui["min_spatial_segmentation_idc"] = reader.ue()
+        vui["max_bytes_per_pic_denom"] = reader.ue()
+        vui["max_bits_per_min_cu_denom"] = reader.ue()
+        vui["log2_max_mv_length_horizontal"] = reader.ue()
+        vui["log2_max_mv_length_vertical"] = reader.ue()
+    return vui
+
+
+def parse_sps_complete(nal_payload: bytes) -> ExtendedSPS:
+    if len(nal_payload) < 3:
+        raise ValueError("SPS NAL is too short")
+    reader = BitReader(remove_emulation_prevention(nal_payload[2:]))
+    vps_id = reader.bits(4)
+    max_sub_layers_minus1 = reader.bits(3)
+    if max_sub_layers_minus1 > 6:
+        raise ValueError("sps_max_sub_layers_minus1 exceeds 6")
+    temporal_id_nesting_flag = reader.bit()
+    profile = parse_profile_tier_level(reader, max_sub_layers_minus1)
+    sps_id = reader.ue()
+    chroma_format_idc = reader.ue()
+    if chroma_format_idc > 3:
+        raise ValueError("chroma_format_idc exceeds 3")
+    separate_colour_plane_flag = reader.bit() if chroma_format_idc == 3 else 0
+    width = reader.ue()
+    height = reader.ue()
+    conformance_window = None
+    if reader.bit():
+        conformance_window = {
+            "left_offset": reader.ue(),
+            "right_offset": reader.ue(),
+            "top_offset": reader.ue(),
+            "bottom_offset": reader.ue(),
+        }
+    bit_depth_luma = reader.ue() + 8
+    bit_depth_chroma = reader.ue() + 8
+    log2_max_poc_lsb = reader.ue() + 4
+    ordering_present = reader.bit()
+    ordering: list[dict[str, int]] = []
+    start = 0 if ordering_present else max_sub_layers_minus1
+    last: dict[str, int] | None = None
+    for index in range(start, max_sub_layers_minus1 + 1):
+        last = {
+            "sub_layer": index,
+            "max_dec_pic_buffering_minus1": reader.ue(),
+            "max_num_reorder_pics": reader.ue(),
+            "max_latency_increase_plus1": reader.ue(),
+        }
+        ordering.append(last)
+    if not ordering_present and last is not None:
+        ordering = [{**last, "sub_layer": index} for index in range(max_sub_layers_minus1 + 1)]
+
+    log2_min_cb = reader.ue() + 3
+    log2_diff_cb = reader.ue()
+    log2_min_tb = reader.ue() + 2
+    log2_diff_tb = reader.ue()
+    max_depth_inter = reader.ue()
+    max_depth_intra = reader.ue()
+    scaling_enabled = reader.bit()
+    scaling_present = reader.bit() if scaling_enabled else 0
+    if scaling_present:
+        skip_scaling_list_data(reader)
+    amp_enabled = reader.bit()
+    sao_enabled = reader.bit()
+    pcm_enabled = reader.bit()
+    pcm = None
+    if pcm_enabled:
+        pcm = {
+            "pcm_sample_bit_depth_luma": reader.bits(4) + 1,
+            "pcm_sample_bit_depth_chroma": reader.bits(4) + 1,
+            "log2_min_pcm_luma_coding_block_size": reader.ue() + 3,
+            "log2_diff_max_min_pcm_luma_coding_block_size": reader.ue(),
+            "pcm_loop_filter_disabled_flag": reader.bit(),
+        }
+    num_st_rps = reader.ue()
+    if num_st_rps > 64:
+        raise ValueError("num_short_term_ref_pic_sets exceeds 64")
+    short_term_sets: list[dict[str, Any]] = []
+    for index in range(num_st_rps):
+        short_term_sets.append(parse_short_term_rps(reader, index, short_term_sets))
+    long_term_present = reader.bit()
+    long_term: list[dict[str, Any]] = []
+    if long_term_present:
+        num_long_term = reader.ue()
+        if num_long_term > 32:
+            raise ValueError("num_long_term_ref_pics_sps exceeds 32")
+        for index in range(num_long_term):
+            long_term.append(
+                {
+                    "index": index,
+                    "lt_ref_pic_poc_lsb_sps": reader.bits(log2_max_poc_lsb),
+                    "used_by_curr_pic_lt_sps_flag": reader.bit(),
+                }
+            )
+    temporal_mvp = reader.bit()
+    strong_smoothing = reader.bit()
+    vui_present = reader.bit()
+    vui = parse_vui(reader, max_sub_layers_minus1) if vui_present else None
+    extension_present = reader.bit()
+    extension = None
+    if extension_present:
+        range_extension = reader.bit()
+        multilayer_extension = reader.bit()
+        extension_3d = reader.bit()
+        scc_extension = reader.bit()
+        extension_4bits = reader.bits(4)
+        extension = {
+            "range_extension_flag": range_extension,
+            "multilayer_extension_flag": multilayer_extension,
+            "3d_extension_flag": extension_3d,
+            "scc_extension_flag": scc_extension,
+            "extension_4bits": extension_4bits,
+        }
+        if range_extension:
+            extension["range"] = {
+                "transform_skip_rotation_enabled_flag": reader.bit(),
+                "transform_skip_context_enabled_flag": reader.bit(),
+                "implicit_rdpcm_enabled_flag": reader.bit(),
+                "explicit_rdpcm_enabled_flag": reader.bit(),
+                "extended_precision_processing_flag": reader.bit(),
+                "intra_smoothing_disabled_flag": reader.bit(),
+                "high_precision_offsets_enabled_flag": reader.bit(),
+                "persistent_rice_adaptation_enabled_flag": reader.bit(),
+                "cabac_bypass_alignment_enabled_flag": reader.bit(),
+            }
+        if multilayer_extension:
+            extension["inter_view_mv_vert_constraint_flag"] = reader.bit()
+        if extension_3d or scc_extension or extension_4bits:
+            extension["unparsed_extension_bits"] = reader.bits_left
+            reader.position = len(reader.data) * 8
+
+    max_log2_cb = log2_min_cb + log2_diff_cb
+    ctb_size = 1 << max_log2_cb
+    derived = {
+        "log2_ctb_size": max_log2_cb,
+        "ctb_size": ctb_size,
+        "ctb_width": (width + ctb_size - 1) // ctb_size,
+        "ctb_height": (height + ctb_size - 1) // ctb_size,
+        "min_cb_width": (width + (1 << log2_min_cb) - 1) >> log2_min_cb,
+        "min_cb_height": (height + (1 << log2_min_cb) - 1) >> log2_min_cb,
+    }
+    return ExtendedSPS(
+        sps_id=sps_id,
+        vps_id=vps_id,
+        max_sub_layers_minus1=max_sub_layers_minus1,
+        temporal_id_nesting_flag=temporal_id_nesting_flag,
+        profile_tier_level=profile,
+        chroma_format_idc=chroma_format_idc,
+        separate_colour_plane_flag=separate_colour_plane_flag,
+        width=width,
+        height=height,
+        conformance_window=conformance_window,
+        bit_depth_luma=bit_depth_luma,
+        bit_depth_chroma=bit_depth_chroma,
+        log2_max_poc_lsb=log2_max_poc_lsb,
+        sub_layer_ordering=ordering,
+        log2_min_luma_coding_block_size=log2_min_cb,
+        log2_diff_max_min_luma_coding_block_size=log2_diff_cb,
+        log2_min_luma_transform_block_size=log2_min_tb,
+        log2_diff_max_min_luma_transform_block_size=log2_diff_tb,
+        max_transform_hierarchy_depth_inter=max_depth_inter,
+        max_transform_hierarchy_depth_intra=max_depth_intra,
+        scaling_list_enabled_flag=scaling_enabled,
+        scaling_list_data_present_flag=scaling_present,
+        amp_enabled_flag=amp_enabled,
+        sample_adaptive_offset_enabled_flag=sao_enabled,
+        pcm=pcm,
+        short_term_ref_pic_sets=short_term_sets,
+        long_term_ref_pics=long_term,
+        sps_temporal_mvp_enabled_flag=temporal_mvp,
+        strong_intra_smoothing_enabled_flag=strong_smoothing,
+        vui=vui,
+        extension=extension,
+        derived=derived,
+        parsed_bits=reader.position,
+        remaining_bits=reader.bits_left,
+    )
+
+
+def sps_to_dict(sps: ExtendedSPS) -> dict[str, Any]:
+    return asdict(sps)

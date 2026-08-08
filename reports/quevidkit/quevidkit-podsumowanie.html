@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="pl">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Raport z Analizy Śledczej Wideo</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        h1,
+        h2,
+        h3 {
+            color: #1a365d;
+        }
+
+        .alert {
+            background-color: #fee2e2;
+            border-left: 5px solid #ef4444;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .info {
+            background-color: #e0f2fe;
+            border-left: 5px solid #0ea5e9;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .concept {
+            font-weight: bold;
+            color: #0369a1;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+
+        th,
+        td {
+            padding: 10px;
+            border: 1px solid #cbd5e1;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f1f5f9;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>Raport z Analizy Śledczej Wideo</h1>
+
+    <div class="info">
+        <h2>1. Podstawowe Informacje o Materiale Dowodowym</h2>
+        <ul>
+            <li><strong>Nazwa i ścieżka pliku:</strong>
+                <code>/home/tom/projects/quevidkit/work/evidence/1796.mp4</code>[cite: 1, 2]</li>
+            <li><strong>Unikalny podpis cyfrowy (SHA256):</strong>
+                <code>8560a2d703c1025ba7c5b4deef5e53f89b9ee0c1026cae67b4145e34d137a903</code> (pozwala na jednoznaczną
+                identyfikację pliku)[cite: 1, 2]</li>
+            <li><strong>Czas trwania:</strong> 15,67 sekundy[cite: 1, 2]</li>
+        </ul>
+    </div>
+
+    <div class="alert">
+        <h2>2. Główny Wniosek (Werdykt)</h2>
+        <p><strong>Status: ZMODYFIKOWANY (TAMPERED)</strong>[cite: 1, 2]</p>
+        <p>System wykrył bardzo wysokie prawdopodobieństwo ingerencji w plik wideo (<strong>83,6%</strong>) przy
+            wysokiej pewności dowodowej (<strong>90,4%</strong>)[cite: 1, 2]. Z 15 przeprowadzonych testów technicznych,
+            aż 7 wykazało silne anomalie[cite: 1, 2]. Co kluczowe, nieprawidłowości wystąpiły jednocześnie w 4
+            niezależnych od siebie kategoriach: dźwięku, obrazie, metadanych (informacjach o pliku) oraz kompresji[cite:
+            1, 2]. Taka zbieżność znacząco minimalizuje ryzyko pomyłki systemu[cite: 1, 2].</p>
+    </div>
+
+    <h2>3. Szczegółowe Ustalenia Techniczne (Fakty)</h2>
+    <p>Poniżej przedstawiono zidentyfikowane nieprawidłowości, przetłumaczone na język zrozumiały dla osób bez
+        specjalistycznej wiedzy informatycznej.</p>
+
+    <h3>A. Niezgodność czasu trwania (Metadane)</h3>
+    <p><strong>Co stwierdzono:</strong> Czas trwania ścieżki dźwiękowej różni się od czasu trwania ścieżki wideo o około
+        2,8 sekundy[cite: 1, 2]. W pliku wykryto informację o tej niezgodności na poziomie struktury[cite: 1, 2].</p>
+    <p><strong>Co to oznacza:</strong> <span class="concept">Metadane</span> to "etykiety" opisujące plik. Różnica w
+        długości obrazu i dźwięku często wskazuje na to, że materiał był przycinany, łączony lub modyfikowany bez
+        odpowiedniego zaktualizowania wspomnianych "etykiet" przez program montażowy[cite: 1]. <em>Należy jednak
+            zaznaczyć, że w rzadkich przypadkach (np. przy użyciu oprogramowania do streamingu), takie różnice mogą
+            powstać bez złych intencji[cite: 1].</em></p>
+
+    <h3>B. Zmiany w strukturze zapisu obrazu (Kompresja i GOP)</h3>
+    <p><strong>Co stwierdzono:</strong> Wykryto nieregularności w tzw. strukturze GOP[cite: 1, 2]. Dodatkowo
+        zidentyfikowano ślady podwójnej kompresji, sugerujące, że film był wcześniej zapisany z innymi ustawieniami
+        (wykryto "ślad" odstępu wynoszącego 138 klatek, podczas gdy obecny plik ma 51)[cite: 1, 2].</p>
+    <p><strong>Co to oznacza:</strong> <span class="concept">GOP (Group of Pictures)</span> to sposób, w jaki programy
+        grupują klatki wideo, aby zmniejszyć rozmiar pliku. Różne kamery i programy robią to w unikalny sposób. Zmiana
+        tego wzorca w połowie filmu lub nałożenie się na siebie dwóch różnych wzorców to bardzo silny dowód na to, że
+        fragmenty pochodzące z różnych źródeł (lub z różnych sesji nagraniowych) zostały ze sobą połączone w jeden
+        plik[cite: 1].</p>
+
+    <h3>C. Nienaturalne skoki w dźwięku (Analiza Audio)</h3>
+    <p><strong>Co stwierdzono:</strong> Zarejestrowano ostre, nienaturalne przerwy i zmiany w widmie dźwięku (tzw. skoki
+        energii i środka ciężkości widma), między innymi na samym początku nagrania (0,00s) oraz w 3,8s, 8,35s i
+        12,45s[cite: 1, 2].</p>
+    <p><strong>Co to oznacza:</strong> System bada właściwości fizyczne fal dźwiękowych. Gwałtowne przerwy w tych falach
+        są charakterystyczne dla sytuacji, w których połączono ze sobą dwa różne nagrania dźwiękowe (np. nagrane różnymi
+        mikrofonami lub w innym otoczeniu)[cite: 1]. <em>Choć nagły hałas w tle może wywołać podobny efekt, liczba
+            wykrytych punktów wzmacnia tezę o montażu[cite: 1].</em></p>
+
+    <h3>D. Zmiany poziomu "szumu" i błędy kompresji (Analiza Obrazu)</h3>
+    <p><strong>Co stwierdzono:</strong> Wymierne skoki w poziomie szumu tła (np. w 0,5s, 1,6s, 2,1s)[cite: 1, 2] oraz
+        anomalie w teście <span class="concept">ELA</span> (Analiza Poziomu Błędów - w 0,7s, 1,3s i 12,6s)[cite: 1, 2].
+    </p>
+    <p><strong>Co to oznacza:</strong> Każda kamera zostawia na obrazie specyficzny, mikroskopijny cyfrowy szum. Kiedy
+        połączymy ze sobą ujęcia z dwóch różnych kamer lub ujęcia zapisane w różnej jakości, na styku tych połączeń
+        poziom szumu gwałtownie się zmieni[cite: 1]. Analiza ELA potwierdza, że różne fragmenty tego samego filmu
+        przechodziły przez proces zapisu (kompresji) różną ilość razy[cite: 1].</p>
+
+    <h2>4. Ograniczenia i Problemy Techniczne (Czerwone flagi)</h2>
+    <ul>
+        <li>Jeden z testów (badający ogólne skoki jakości klatek) nie został ukończony z powodu błędu technicznego
+            oprogramowania analitycznego (niezgodność formatu danych /
+            <code>operands could not be broadcast together with shapes</code>)[cite: 1, 2]. Nie wpływa to jednak na
+            wysoce wiarygodne wyniki pozostałych testów.</li>
+    </ul>
+
+</body>
+
+</html>

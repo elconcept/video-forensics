@@ -1,0 +1,27 @@
+from __future__ import annotations
+
+import numpy as np
+
+from video_forensics.tools.frame_metrics import _entropy, _findings, _laplacian_variance, _summary
+
+
+def test_constant_frame_has_zero_laplacian_variance_and_entropy() -> None:
+    frame = np.zeros((10, 10), dtype=np.uint8)
+    assert _laplacian_variance(frame) == 0.0
+    assert _entropy(frame) == 0.0
+
+
+def test_checkerboard_has_positive_detail_metrics() -> None:
+    frame = (np.indices((10, 10)).sum(axis=0) % 2 * 255).astype(np.uint8)
+    assert _laplacian_variance(frame) > 0
+    assert _entropy(frame) == 1.0
+
+
+def test_summary_and_findings_rank_interframe_difference() -> None:
+    rows = [
+        {"frame_number": 1, "luma_mean": 1.0, "mae_previous": None, "laplacian_variance": 2.0, "entropy": 3.0},
+        {"frame_number": 2, "luma_mean": 2.0, "mae_previous": 4.0, "laplacian_variance": 3.0, "entropy": 4.0},
+        {"frame_number": 3, "luma_mean": 3.0, "mae_previous": 9.0, "laplacian_variance": 4.0, "entropy": 5.0},
+    ]
+    assert _summary(rows)["mae_previous_max"] == 9.0
+    assert _findings(rows, limit=1)[0]["frame_number"] == 3

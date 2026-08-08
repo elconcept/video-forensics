@@ -1,0 +1,10 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from video_forensics.native.orphan_pipeline import find_ffmpeg
+
+
+def test_find_ffmpeg_accepts_explicit_binary() -> None:
+    result = find_ffmpeg("/bin/true")
+    assert result == Path("/bin/true").resolve()

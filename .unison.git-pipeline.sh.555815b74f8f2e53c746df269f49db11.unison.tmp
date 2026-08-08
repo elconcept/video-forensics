@@ -1,0 +1,36 @@
+#!/bin/bash
+
+# Zatrzymuje działanie skryptu, jeśli jakakolwiek komenda zwróci błąd
+set -e
+
+echo "=== Rozpoczynam proces aktualizacji ==="
+
+# Krok 1: Uruchomienie naszego skryptu w Pythonie (generowanie CHANGE.LOG i usuwanie plików STEP)
+echo "-> Generowanie CHANGE.LOG..."
+# python make_changelog.py
+
+# Krok 2: Sprawdzanie i automatyczne naprawianie kodu za pomocą ruff
+echo "-> Formatowanie i sprawdzanie kodu (ruff)..."
+ruff check . --fix --unsafe-fixes
+
+# Krok 3: Uruchomienie testów automatycznych
+echo "-> Uruchamianie testów (pytest)..."
+pytest
+
+# Krok 4: Sprawdzenie poprawności białych znaków (np. spacji na końcu linii) przed commitem
+echo "-> Sprawdzanie formatowania Git..."
+git diff --check
+
+# Krok 5: Dodanie wszystkich zmian do poczekalni (staging area) w Git
+echo "-> Dodawanie zmian do Git..."
+git add .
+
+# Krok 6: Zapisanie zmian z wiadomością
+echo "-> Tworzenie commita..."
+git commit -m "Next Step"
+
+# Krok 7: Wysłanie zmian na zdalny serwer (np. GitHub/GitLab)
+echo "-> Wysyłanie zmian na serwer (push)..."
+git push
+
+echo "=== Gotowe! Twój nowy krok został opublikowany. ==="

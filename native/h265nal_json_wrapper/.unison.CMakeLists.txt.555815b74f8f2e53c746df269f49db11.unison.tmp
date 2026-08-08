@@ -1,0 +1,14 @@
+cmake_minimum_required(VERSION 3.16)
+project(video_forensics_h265nal_json_wrapper LANGUAGES CXX)
+
+add_executable(h265nal_json_wrapper main.cpp)
+target_compile_features(h265nal_json_wrapper PRIVATE cxx_std_17)
+set_target_properties(h265nal_json_wrapper PROPERTIES
+  CXX_EXTENSIONS OFF
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+)
+if(MSVC)
+  target_compile_options(h265nal_json_wrapper PRIVATE /W4 /permissive-)
+else()
+  target_compile_options(h265nal_json_wrapper PRIVATE -Wall -Wextra -Wpedantic)
+endif()
