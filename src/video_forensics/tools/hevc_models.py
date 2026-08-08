@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 
 class BitReader:
     def __init__(self, data: bytes) -> None:

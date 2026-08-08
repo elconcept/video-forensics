@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from video_forensics.tools.hevc_models import BitReader, PPS, SPS
-
 from dataclasses import dataclass
 
+from video_forensics.tools.hevc_models import PPS, SPS, BitReader
 from video_forensics.tools.hevc_pps import parse_pps_complete, pps_to_dict
 from video_forensics.tools.hevc_sps import parse_sps_complete, sps_to_dict
 

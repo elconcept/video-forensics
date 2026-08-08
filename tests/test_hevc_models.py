@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from video_forensics.tools import hevc_poc
-from video_forensics.tools.hevc_models import BitReader, PPS, SPS
+from video_forensics.tools.hevc_models import PPS, SPS, BitReader
 
 
 def test_hevc_poc_reexports_neutral_models() -> None:
