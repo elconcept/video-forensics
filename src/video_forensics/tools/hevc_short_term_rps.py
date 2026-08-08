@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
-from video_forensics.tools.hevc_poc import BitReader, rbsp, skip_profile_tier_level
+from video_forensics.tools.hevc_models import BitReader
+from video_forensics.tools.hevc_poc import rbsp, skip_profile_tier_level
 
 MAX_SHORT_TERM_REFS = 16
 

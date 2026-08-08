@@ -6,11 +6,26 @@ param(
     [string]$Ffprobe = "ffprobe"
 )
 
-$ErrorActionPreference = "Stop"
-& $Python scripts\bootstrap_h265nal.py
-if ($LASTEXITCODE -ne 0) { throw "h265nal bootstrap failed" }
+$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 
-& "$PSScriptRoot\bootstrap_windows.ps1"
+$OriginalLocation = Get-Location
+try {
+    Set-Location -LiteralPath $RepoRoot
+
+$ErrorActionPreference = "Stop"
+$WindowsToolsBootstrap = Join-Path $RepoRoot "scripts\bootstrap_windows_tools.ps1"
+if (-not (Test-Path -LiteralPath $WindowsToolsBootstrap -PathType Leaf)) {
+    throw "Missing Windows tools bootstrap: $WindowsToolsBootstrap"
+}
+& $WindowsToolsBootstrap
+if ($LASTEXITCODE -ne 0) { throw "Windows tools bootstrap failed" }
+
+$H265nalBootstrap = Join-Path $RepoRoot "scripts\bootstrap_h265nal.py"
+if (-not (Test-Path -LiteralPath $H265nalBootstrap -PathType Leaf)) {
+    throw "Missing h265nal bootstrap script: $H265nalBootstrap"
+}
+& $Python $H265nalBootstrap
+if ($LASTEXITCODE -ne 0) { throw "h265nal bootstrap failed" }& "$PSScriptRoot\bootstrap_windows.ps1"
 New-Item -ItemType Directory -Force -Path $EvidenceDir, $ResultsDir | Out-Null
 
 $extensions = @(".mp4", ".mov", ".mkv", ".avi", ".m4v", ".hevc", ".h265")
@@ -181,3 +196,8 @@ foreach ($file in $files) {
 }
 
 Write-Host "Completed session timestamp: $session"
+
+}
+finally {
+    Set-Location -LiteralPath $OriginalLocation
+}

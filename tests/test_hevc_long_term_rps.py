@@ -7,7 +7,7 @@ from video_forensics.tools.hevc_long_term_rps import (
     parse_slice_long_term_references,
     parse_sps_long_term_references,
 )
-from video_forensics.tools.hevc_poc import BitReader
+from video_forensics.tools.hevc_models import BitReader
 
 
 def bits(value: str) -> BitReader:

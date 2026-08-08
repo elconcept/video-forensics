@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
-from video_forensics.tools.hevc_poc import BitReader
+from video_forensics.tools.hevc_models import BitReader
 
 MAX_LONG_TERM_REFS = 32
 

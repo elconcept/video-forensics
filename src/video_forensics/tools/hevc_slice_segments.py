@@ -7,7 +7,8 @@ from video_forensics.tools.hevc_long_term_rps import (
     SpsLongTermReference,
     parse_slice_long_term_references,
 )
-from video_forensics.tools.hevc_poc import IRAP_TYPES, PPS, SPS, BitReader, rbsp
+from video_forensics.tools.hevc_models import PPS, SPS, BitReader
+from video_forensics.tools.hevc_poc import IRAP_TYPES, rbsp
 from video_forensics.tools.hevc_short_term_rps import (
     ShortTermRPS,
     parse_short_term_rps,

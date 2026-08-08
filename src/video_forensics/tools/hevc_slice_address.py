@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from video_forensics.tools.hevc_poc import SPS, BitReader
+from video_forensics.tools.hevc_models import SPS, BitReader
 
 
 @dataclass(frozen=True)

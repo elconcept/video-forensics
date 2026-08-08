@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from video_forensics.tools.hevc_poc import SPS, BitReader
+from video_forensics.tools.hevc_models import SPS, BitReader
 from video_forensics.tools.hevc_slice_address import (
     address_coordinates,
     ceil_log2,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from video_forensics.tools.hevc_poc import BitReader
+from video_forensics.tools.hevc_models import BitReader
 from video_forensics.tools.hevc_short_term_rps import parse_short_term_rps
 
 

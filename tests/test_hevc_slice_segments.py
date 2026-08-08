@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from video_forensics.tools.hevc_poc import PPS, SPS
+from video_forensics.tools.hevc_models import PPS, SPS
 from video_forensics.tools.hevc_slice_segments import (
     SliceSegmentHeader,
     parse_slice_segment_header,
